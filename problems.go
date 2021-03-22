@@ -370,3 +370,25 @@ func ServerProblemOf(ctx context.Context, path string, err error) Problem {
 		return New(path, nil).InternalServerError("")
 	}
 }
+
+func Bind(ctx context.Context, status int, body []byte, f ...func(status int) Problem) (problem Problem, err error) {
+	if len(body) <= 0 {
+		return nil, nil
+	}
+	if f != nil && len(f) > 0 {
+		problem = f[0](status)
+	}
+	if problem == nil {
+		switch status {
+		case http.StatusBadRequest:
+			problem = &BadRequest{}
+		default:
+			problem = &DefaultProblem{}
+		}
+	}
+	if err = json.Unmarshal(body, problem); err != nil {
+		log.Error(ctx).Msg(string(body))
+		return problem, errors.WithStack(err)
+	}
+	return problem, nil
+}
