@@ -374,15 +374,15 @@ func ServerProblemOf(ctx context.Context, path string, err error) Problem {
 }
 
 func Bind(ctx context.Context, status int, body []byte, f ...func(status int) Problem) (problem Problem, err error) {
-	if len(body) <= 0 {
-		return nil, nil
-	}
 	problem = newProblem(status, f...)
+	if len(body) <= 0 {
+		return
+	}
 	if err = json.Unmarshal(body, problem); err != nil {
 		log.Error(ctx).Msg(string(body))
 		return problem, errors.WithStack(err)
 	}
-	return problem, nil
+	return
 }
 
 func newProblem(status int, f ...func(status int) Problem) (problem Problem) {
@@ -401,13 +401,13 @@ func newProblem(status int, f ...func(status int) Problem) (problem Problem) {
 }
 
 func Decode(ctx context.Context, status int, body io.Reader, f ...func(status int) Problem) (problem Problem, err error) {
-	if body == nil {
-		return nil, nil
-	}
 	problem = newProblem(status, f...)
+	if body == nil {
+		return
+	}
 	if err = json.NewDecoder(body).Decode(&problem); err != nil {
 		_, _ = io.Copy(ioutil.Discard, body)
 		return problem, errors.WithStack(err)
 	}
-	return problem, nil
+	return
 }
