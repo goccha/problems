@@ -28,7 +28,7 @@ func TestNotFound(t *testing.T) {
 		if code.Status != http.StatusNotFound {
 			t.Errorf("expect = %d, actual = %d", http.StatusNotFound, code.Status)
 		}
-		expect := http.StatusText(int(http.StatusNotFound))
+		expect := http.StatusText(http.StatusNotFound)
 		if code.Title != expect {
 			t.Errorf("expect = %s, actual = %s", expect, code.Title)
 		}
@@ -78,7 +78,7 @@ func TestBuilder_BadRequest(t *testing.T) {
 		if br.Status != http.StatusBadRequest {
 			t.Errorf("expect = %d, actual = %d", http.StatusBadRequest, br.Status)
 		}
-		expect := http.StatusText(int(http.StatusBadRequest))
+		expect := http.StatusText(http.StatusBadRequest)
 		if br.Title != expect {
 			t.Errorf("expect = %s, actual = %s", expect, br.Title)
 		}
@@ -116,7 +116,7 @@ func TestClientProblemOf(t *testing.T) {
 		if br.Status != http.StatusBadRequest {
 			t.Errorf("expect = %d, actual = %d", http.StatusBadRequest, br.Status)
 		}
-		expect := http.StatusText(int(http.StatusBadRequest))
+		expect := http.StatusText(http.StatusBadRequest)
 		if br.Title != expect {
 			t.Errorf("expect = %s, actual = %s", expect, br.Title)
 		}
@@ -148,7 +148,7 @@ func TestClientProblemOfNil(t *testing.T) {
 		if br.Status != http.StatusBadRequest {
 			t.Errorf("expect = %d, actual = %d", http.StatusBadRequest, br.Status)
 		}
-		expect := http.StatusText(int(http.StatusBadRequest))
+		expect := http.StatusText(http.StatusBadRequest)
 		if br.Title != expect {
 			t.Errorf("expect = %s, actual = %s", expect, br.Title)
 		}
@@ -174,7 +174,7 @@ func TestServerProblemOf(t *testing.T) {
 		if dp.Status != http.StatusInternalServerError {
 			t.Errorf("expect = %d, actual = %d", http.StatusInternalServerError, dp.Status)
 		}
-		expect := http.StatusText(int(http.StatusInternalServerError))
+		expect := http.StatusText(http.StatusInternalServerError)
 		if dp.Title != expect {
 			t.Errorf("expect = %s, actual = %s", expect, dp.Title)
 		}
@@ -196,7 +196,7 @@ func TestServerProblemOfNil(t *testing.T) {
 		if dp.Status != http.StatusInternalServerError {
 			t.Errorf("expect = %d, actual = %d", http.StatusInternalServerError, dp.Status)
 		}
-		expect := http.StatusText(int(http.StatusInternalServerError))
+		expect := http.StatusText(http.StatusInternalServerError)
 		if dp.Title != expect {
 			t.Errorf("expect = %s, actual = %s", expect, dp.Title)
 		}
