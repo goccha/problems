@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"github.com/go-playground/validator/v10"
-	"github.com/goccha/errors"
 	"github.com/goccha/http-constants/pkg/headers"
 	"github.com/goccha/http-constants/pkg/mimetypes"
-	"github.com/goccha/stackdriver/pkg/log"
+	"github.com/goccha/logging/log"
+	"golang.org/x/xerrors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"io"
@@ -210,17 +211,6 @@ type InvalidParam struct {
 
 type MsgFunc func() string
 
-func ClientProblemOf(ctx context.Context, path string, err error, f ...MsgFunc) Problem {
-	msg := ""
-	if len(f) > 0 {
-		msg = f[0]()
-	}
-	if err == nil {
-		return New(path, NewBadRequest(err)).BadRequest(msg)
-	}
-	return New(path, NewBadRequest(err)).BadRequest(msg)
-}
-
 func selectMsg(err error, f ...MsgFunc) MsgFunc {
 	if len(f) > 0 {
 		return f[0]
@@ -244,7 +234,7 @@ func ServerProblemOf(ctx context.Context, path string, err error, f ...MsgFunc) 
 		return p.Problem()
 	default:
 		msg := selectMsg(err, f...)
-		if st, ok := status.FromError(errors.Cause(err)); ok {
+		if st, ok := status.FromError(errors.Unwrap(err)); ok {
 			switch st.Code() {
 			case codes.Unavailable:
 				log.Warn(ctx, 1).Msgf("%+v", err)
@@ -263,7 +253,7 @@ func Bind(ctx context.Context, status int, body []byte, f ...func(status int) Pr
 	}
 	if err = json.Unmarshal(body, problem); err != nil {
 		log.Error(ctx).Msg(string(body))
-		return problem, errors.WithStack(err)
+		return problem, xerrors.Errorf("%w", err)
 	}
 	return
 }
@@ -290,7 +280,7 @@ func Decode(ctx context.Context, status int, body io.Reader, f ...func(status in
 	}
 	if err = json.NewDecoder(body).Decode(&problem); err != nil {
 		_, _ = io.Copy(ioutil.Discard, body)
-		return problem, errors.WithStack(err)
+		return problem, xerrors.Errorf("%w", err)
 	}
 	return
 }

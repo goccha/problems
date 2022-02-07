@@ -3,9 +3,9 @@ package problems
 import (
 	"context"
 	"github.com/go-playground/validator/v10"
-	"github.com/goccha/errors"
 	"github.com/goccha/http-constants/pkg/headers"
 	"github.com/goccha/http-constants/pkg/mimetypes"
+	"golang.org/x/xerrors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -94,72 +94,8 @@ func TestBuilder_BadRequest(t *testing.T) {
 	}
 }
 
-func TestClientProblemOf(t *testing.T) {
-	type TestObject struct {
-		Name string `json:"name" validate:"required"`
-	}
-	obj := &TestObject{}
-	validate := validator.New()
-	err := validate.Struct(obj)
-	p := ClientProblemOf(context.TODO(), "/validate", err)
-	if br, ok := p.(*BadRequest); ok {
-		if br.Instance != "/validate" {
-			t.Errorf("expect = /validate, actual = %s", br.Instance)
-		}
-		expected := err.Error()
-		if br.Detail != expected {
-			t.Errorf("expect = %s request, actual = %s", expected, br.Detail)
-		}
-		if br.Type != DefaultType {
-			t.Errorf("expect = %s, actual = %s", DefaultType, br.Type)
-		}
-		if br.Status != http.StatusBadRequest {
-			t.Errorf("expect = %d, actual = %d", http.StatusBadRequest, br.Status)
-		}
-		expect := http.StatusText(http.StatusBadRequest)
-		if br.Title != expect {
-			t.Errorf("expect = %s, actual = %s", expect, br.Title)
-		}
-		if len(br.InvalidParams) == 1 {
-			params := br.InvalidParams[0]
-			if params.Name != "Name" {
-				t.Errorf("expect = Name, actual = %s", params.Name)
-			}
-			if params.Reason != "required" {
-				t.Errorf("expect = required, actual = %s", params.Reason)
-			}
-		}
-	}
-}
-
-func TestClientProblemOfNil(t *testing.T) {
-	p := ClientProblemOf(context.TODO(), "/validate", nil)
-	if br, ok := p.(*BadRequest); ok {
-		if br.Instance != "/validate" {
-			t.Errorf("expect = /validate, actual = %s", br.Instance)
-		}
-		expected := ""
-		if br.Detail != expected {
-			t.Errorf("expect = %s request, actual = %s", expected, br.Detail)
-		}
-		if br.Type != DefaultType {
-			t.Errorf("expect = %s, actual = %s", DefaultType, br.Type)
-		}
-		if br.Status != http.StatusBadRequest {
-			t.Errorf("expect = %d, actual = %d", http.StatusBadRequest, br.Status)
-		}
-		expect := http.StatusText(http.StatusBadRequest)
-		if br.Title != expect {
-			t.Errorf("expect = %s, actual = %s", expect, br.Title)
-		}
-		if len(br.InvalidParams) != 0 {
-			t.Errorf("expect = 0, actual = %d", len(br.InvalidParams))
-		}
-	}
-}
-
 func TestServerProblemOf(t *testing.T) {
-	err := errors.New("test error")
+	err := xerrors.New("test error")
 	p := ServerProblemOf(context.TODO(), "/problems", err)
 	if dp, ok := p.(*DefaultProblem); ok {
 		if dp.Instance != "/problems" {
