@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"github.com/go-playground/validator/v10"
 	"github.com/goccha/http-constants/pkg/headers"
 	"github.com/goccha/http-constants/pkg/mimetypes"
 	"github.com/goccha/logging/log"
-	"golang.org/x/xerrors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"io"
@@ -158,18 +158,16 @@ func (p *BadRequest) XML(ctx context.Context, w http.ResponseWriter) {
 
 func NewBadRequest(err error) func(p *DefaultProblem) Problem {
 	var fields []InvalidParam
-	switch err.(type) {
+	switch err := err.(type) {
 	case validator.ValidationErrors:
-		ve := err.(validator.ValidationErrors)
-		fields = make([]InvalidParam, 0, len(ve))
-		for _, v := range ve {
+		fields = make([]InvalidParam, 0, len(err))
+		for _, v := range err {
 			p := InvalidParam{v.Field(), v.Tag()}
 			fields = append(fields, p)
 		}
 	case *strconv.NumError:
-		ne := err.(*strconv.NumError)
 		fields = []InvalidParam{
-			{ne.Func, ne.Num},
+			{err.Func, err.Num},
 		}
 	}
 	return func(p *DefaultProblem) Problem {
@@ -225,13 +223,12 @@ func selectMsg(err error, f ...MsgFunc) MsgFunc {
 }
 
 func ServerProblemOf(ctx context.Context, path string, err error, f ...MsgFunc) Problem {
-	switch err.(type) {
+	switch err := err.(type) {
 	case *ProblemError:
-		p := err.(*ProblemError)
-		if p.Path == "" {
-			p.Path = path
+		if err.Path == "" {
+			err.Path = path
 		}
-		return p.Problem()
+		return err.Problem()
 	default:
 		msg := selectMsg(err, f...)
 		if st, ok := status.FromError(errors.Unwrap(err)); ok {
@@ -253,13 +250,13 @@ func Bind(ctx context.Context, status int, body []byte, f ...func(status int) Pr
 	}
 	if err = json.Unmarshal(body, problem); err != nil {
 		log.Error(ctx).Msg(string(body))
-		return problem, xerrors.Errorf("%w", err)
+		return problem, fmt.Errorf("%w", err)
 	}
 	return
 }
 
 func newProblem(status int, f ...func(status int) Problem) (problem Problem) {
-	if f != nil && len(f) > 0 {
+	if len(f) > 0 {
 		problem = f[0](status)
 	}
 	if problem == nil {
@@ -280,7 +277,7 @@ func Decode(ctx context.Context, status int, body io.Reader, f ...func(status in
 	}
 	if err = json.NewDecoder(body).Decode(&problem); err != nil {
 		_, _ = io.Copy(ioutil.Discard, body)
-		return problem, xerrors.Errorf("%w", err)
+		return problem, fmt.Errorf("%w", err)
 	}
 	return
 }

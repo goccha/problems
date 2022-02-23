@@ -2,10 +2,10 @@ package problems
 
 import (
 	"context"
+	"errors"
 	"github.com/go-playground/validator/v10"
 	"github.com/goccha/http-constants/pkg/headers"
 	"github.com/goccha/http-constants/pkg/mimetypes"
-	"golang.org/x/xerrors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -95,7 +95,7 @@ func TestBuilder_BadRequest(t *testing.T) {
 }
 
 func TestServerProblemOf(t *testing.T) {
-	err := xerrors.New("test error")
+	err := errors.New("test error")
 	p := ServerProblemOf(context.TODO(), "/problems", err)
 	if dp, ok := p.(*DefaultProblem); ok {
 		if dp.Instance != "/problems" {
