@@ -3,6 +3,7 @@ package problems
 import (
 	"context"
 	"errors"
+	"github.com/go-playground/assert/v2"
 	"github.com/go-playground/validator/v10"
 	"github.com/goccha/http-constants/pkg/headers"
 	"github.com/goccha/http-constants/pkg/mimetypes"
@@ -36,6 +37,17 @@ func TestNotFound(t *testing.T) {
 			t.Errorf("expect = NotFound, actual = %s", code.Code)
 		}
 	}
+}
+
+func TestNewBadRequest(t *testing.T) {
+	p := New("", NewBadRequest(nil,
+		InvalidParam{
+			Name:   "X-Test-Key",
+			Reason: "required",
+		})).BadRequest("")
+
+	bp := p.(*BadRequest)
+	assert.Equal(t, 1, len(bp.InvalidParams))
 }
 
 func TestDefaultProblem_JSON(t *testing.T) {
