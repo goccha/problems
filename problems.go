@@ -156,7 +156,7 @@ func (p *BadRequest) XML(ctx context.Context, w http.ResponseWriter) {
 	WriteXml(ctx, w, p.ProblemStatus(), p)
 }
 
-func NewBadRequest(err error) func(p *DefaultProblem) Problem {
+func NewBadRequest(err error, params ...InvalidParam) func(p *DefaultProblem) Problem {
 	var fields []InvalidParam
 	switch err := err.(type) {
 	case validator.ValidationErrors:
@@ -170,6 +170,7 @@ func NewBadRequest(err error) func(p *DefaultProblem) Problem {
 			{err.Func, err.Num},
 		}
 	}
+	fields = append(fields, params...)
 	return func(p *DefaultProblem) Problem {
 		if p.Detail == "" && err != nil {
 			p.Detail = err.Error()
