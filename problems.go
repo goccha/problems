@@ -173,6 +173,10 @@ func NewBadRequest(err error, params ...InvalidParam) func(p *DefaultProblem) Pr
 		fields = []InvalidParam{
 			{err.Func, err.Num},
 		}
+	case *json.UnmarshalTypeError:
+		fields = []InvalidParam{
+			{err.Field, "Illegal value type"},
+		}
 	}
 	fields = append(fields, params...)
 	return func(p *DefaultProblem) Problem {
