@@ -13,7 +13,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"strconv"
 )
@@ -40,14 +39,14 @@ func setHeader(ctx context.Context, w http.ResponseWriter, status int, mimetype 
 func WriteJson(ctx context.Context, w http.ResponseWriter, status int, v interface{}) {
 	setHeader(ctx, w, status, mimetypes.ProblemJson)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
-		log.Warn(ctx).Err(err).Send()
+		log.EmbedObject(ctx, log.Warn(ctx).Err(err)).Send()
 	}
 }
 
 func WriteXml(ctx context.Context, w http.ResponseWriter, status int, v interface{}) {
 	setHeader(ctx, w, status, mimetypes.ProblemXml)
 	if err := xml.NewEncoder(w).Encode(v); err != nil {
-		log.Warn(ctx).Err(err).Send()
+		log.EmbedObject(ctx, log.Warn(ctx).Err(err)).Send()
 	}
 }
 
@@ -246,11 +245,11 @@ func ServerProblemOf(ctx context.Context, path string, err error, f ...MsgFunc) 
 		if st, ok := status.FromError(errors.Unwrap(err)); ok {
 			switch st.Code() {
 			case codes.Unavailable:
-				log.Warn(ctx, 1).Msgf("%+v", err)
+				log.EmbedObject(ctx, log.Warn(ctx, 1)).Msgf("%+v", err)
 				return New(path).Unavailable(msg())
 			}
 		}
-		log.Error(ctx, 1).Msgf("%+v", err)
+		log.EmbedObject(ctx, log.Error(ctx, 1)).Msgf("%+v", err)
 		return New(path).InternalServerError(msg())
 	}
 }
@@ -288,7 +287,7 @@ func Decode(ctx context.Context, status int, body io.Reader, f ...func(status in
 		return
 	}
 	if err = json.NewDecoder(body).Decode(&problem); err != nil {
-		_, _ = io.Copy(ioutil.Discard, body)
+		_, _ = io.Copy(io.Discard, body)
 		return problem, fmt.Errorf("%w", err)
 	}
 	return
