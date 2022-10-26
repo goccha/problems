@@ -6,15 +6,16 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"strconv"
+
 	"github.com/go-playground/validator/v10"
 	"github.com/goccha/http-constants/pkg/headers"
 	"github.com/goccha/http-constants/pkg/mimetypes"
 	"github.com/goccha/logging/log"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"io"
-	"net/http"
-	"strconv"
 )
 
 const (
@@ -74,7 +75,9 @@ type DefaultProblem struct {
 }
 
 func (p *DefaultProblem) SetParams(url, instance, detail string) {
-	p.Type = url
+	if p.Type == DefaultType {
+		p.Type = url
+	}
 	p.Instance = instance
 	if detail != "" {
 		p.Detail = detail
@@ -204,8 +207,11 @@ func (p *CodeProblem) Wrap() error {
 	return &ProblemError{P: p}
 }
 
-func NewCodeProblem(code string) func(p *DefaultProblem) Problem {
+func NewCodeProblem(code string, typ ...string) func(p *DefaultProblem) Problem {
 	return func(p *DefaultProblem) Problem {
+		if len(typ) > 0 {
+			p.Type = typ[0]
+		}
 		return &CodeProblem{
 			DefaultProblem: p,
 			Code:           code,
