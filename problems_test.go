@@ -3,13 +3,14 @@ package problems
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
 	"github.com/go-playground/assert/v2"
 	"github.com/go-playground/validator/v10"
 	"github.com/goccha/http-constants/pkg/headers"
 	"github.com/goccha/http-constants/pkg/mimetypes"
-	"net/http"
-	"net/http/httptest"
-	"testing"
 )
 
 func TestNotFound(t *testing.T) {
@@ -148,5 +149,19 @@ func TestServerProblemOfNil(t *testing.T) {
 		if dp.Title != expect {
 			t.Errorf("expect = %s, actual = %s", expect, dp.Title)
 		}
+	}
+}
+
+func TestCodeProblem(t *testing.T) {
+	p := New("/problems", NewCodeProblem("E001", "http://localhost:8080/test?code=E001")).Unavailable("")
+	if cp, ok := p.(*CodeProblem); ok {
+		if cp.Type != "http://localhost:8080/test?code=E001" {
+			t.Errorf("expect = http://localhost:8080/test?code=E001, actual = %s", cp.Type)
+		}
+		if cp.Code != "E001" {
+			t.Errorf("expect = E001, actual = %s", cp.Code)
+		}
+	} else {
+		t.Errorf("expect = CodeProblem, actual=%v", cp)
 	}
 }
