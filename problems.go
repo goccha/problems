@@ -106,7 +106,7 @@ func (p *DefaultProblem) XML(ctx context.Context, w http.ResponseWriter) {
 	WriteXml(ctx, w, p.ProblemStatus(), p)
 }
 func (p *DefaultProblem) Wrap() error {
-	return &ProblemError{P: p}
+	return &ProblemError{problem: p}
 }
 func (p *DefaultProblem) String() string {
 	bytes, err := json.Marshal(p)
@@ -124,27 +124,33 @@ func NewProblem(status int) *DefaultProblem {
 }
 
 type ProblemError struct {
-	Path string
-	P    Problem
-	Err  error
+	Path    string
+	problem Problem
+	err     error
 }
 
 func (err *ProblemError) Problem() Problem {
-	if err.Err != nil {
-		return New(err.Path, nil).InternalServerError(err.Err.Error())
+	if err.err != nil {
+		return New(err.Path, nil).InternalServerError(err.err.Error())
 	}
-	if v, ok := err.P.(DefaultParams); ok {
+	if v, ok := err.problem.(DefaultParams); ok {
 		if err.Path != "" {
 			v.SetInstance(err.Path)
 		}
 	}
-	return err.P
+	return err.problem
 }
 func (err *ProblemError) Error() string {
-	if err.Err != nil {
-		return err.Err.Error()
+	if err.err != nil {
+		return err.err.Error()
 	}
-	return err.P.String()
+	return err.problem.String()
+}
+func (err *ProblemError) Unwrap() error {
+	if err.err != nil {
+		return err.err
+	}
+	return nil
 }
 
 type BadRequest struct {
@@ -159,7 +165,7 @@ func (p *BadRequest) XML(ctx context.Context, w http.ResponseWriter) {
 	WriteXml(ctx, w, p.ProblemStatus(), p)
 }
 func (p *BadRequest) Wrap() error {
-	return &ProblemError{P: p}
+	return &ProblemError{problem: p}
 }
 
 func NewBadRequest(err error, params ...InvalidParam) func(p *DefaultProblem) Problem {
@@ -204,7 +210,7 @@ func (p *CodeProblem) XML(ctx context.Context, w http.ResponseWriter) {
 	WriteXml(ctx, w, p.ProblemStatus(), p)
 }
 func (p *CodeProblem) Wrap() error {
-	return &ProblemError{P: p}
+	return &ProblemError{problem: p}
 }
 
 func NewCodeProblem(code string, typ ...string) func(p *DefaultProblem) Problem {
