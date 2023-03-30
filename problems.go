@@ -238,6 +238,12 @@ type InvalidParam struct {
 	Reason string `json:"reason"`
 }
 
+type ParamError []InvalidParam
+
+func (err ParamError) Error() string {
+	return "invalid parameters"
+}
+
 type MsgFunc func() string
 
 func selectMsg(err error, f ...MsgFunc) MsgFunc {
@@ -269,7 +275,7 @@ func ServerProblemOf(ctx context.Context, path string, err error, f ...MsgFunc) 
 				return New(path).Unavailable(msg())
 			}
 		}
-		log.EmbedObject(ctx, log.Error(ctx, 1)).Msgf("%+v", err)
+		log.EmbedObject(ctx, log.Error(ctx, 1)).Stack().Err(err).Msgf("%+v", err)
 		return New(path).InternalServerError(msg())
 	}
 }
