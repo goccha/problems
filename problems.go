@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/goccha/http-constants/pkg/headers"
@@ -59,11 +60,12 @@ type Problem interface {
 }
 
 type DefaultParams interface {
-	SetParams(url, instance, detail string)
+	SetParams(url, detail string)
 	SetType(url string)
 	SetTitle(title string)
 	SetDetail(detail string)
 	SetInstance(instance string)
+	Problem
 }
 
 type DefaultProblem struct {
@@ -74,11 +76,10 @@ type DefaultProblem struct {
 	Instance string `json:"instance,omitempty"`
 }
 
-func (p *DefaultProblem) SetParams(url, instance, detail string) {
+func (p *DefaultProblem) SetParams(url, detail string) {
 	if p.Type == DefaultType {
 		p.Type = url
 	}
-	p.Instance = instance
 	if detail != "" {
 		p.Detail = detail
 	}
@@ -139,7 +140,7 @@ type ProblemError struct {
 
 func (err *ProblemError) Problem() Problem {
 	if err.err != nil {
-		return New(err.Path, nil).InternalServerError(err.err.Error())
+		return New(Instance(err.Path)).InternalServerError(err.err.Error())
 	}
 	if v, ok := err.problem.(DefaultParams); ok {
 		if err.Path != "" {
@@ -163,7 +164,8 @@ func (err *ProblemError) Unwrap() error {
 
 type BadRequest struct {
 	*DefaultProblem
-	InvalidParams []InvalidParam `json:"invalid-params,omitempty"`
+	InvalidParams []InvalidParam    `json:"invalid-params,omitempty"`
+	Errors        []ValidationError `json:"errors,omitempty"`
 }
 
 func (p *BadRequest) JSON(ctx context.Context, w http.ResponseWriter) {
@@ -176,33 +178,102 @@ func (p *BadRequest) Wrap() error {
 	return &ProblemError{problem: p}
 }
 
-func NewBadRequest(err error, params ...InvalidParam) func(p *DefaultProblem) Problem {
+// InvalidParams Create RFC7807-style validation error messages
+func InvalidParams(err error, params ...InvalidParam) Option {
 	var fields []InvalidParam
-	switch err := err.(type) {
-	case validator.ValidationErrors:
-		fields = make([]InvalidParam, 0, len(err))
-		for _, v := range err {
+	ve := &validator.ValidationErrors{}
+	ne := &strconv.NumError{}
+	ute := &json.UnmarshalTypeError{}
+	if errors.As(err, ve) {
+		fields = make([]InvalidParam, 0, len(*ve))
+		for _, v := range *ve {
 			p := InvalidParam{v.Field(), v.Tag()}
 			fields = append(fields, p)
 		}
-	case *strconv.NumError:
+	} else if errors.As(err, &ne) {
 		fields = []InvalidParam{
-			{err.Func, err.Num},
+			{ne.Func, ne.Num},
 		}
-	case *json.UnmarshalTypeError:
+	} else if errors.As(err, &ute) {
 		fields = []InvalidParam{
-			{err.Field, "Illegal value type"},
+			{ute.Field, "Illegal value type"},
 		}
 	}
 	fields = append(fields, params...)
-	return func(p *DefaultProblem) Problem {
-		if p.Detail == "" && err != nil {
-			p.Detail = err.Error()
+	return func(p DefaultParams) Problem {
+		if err != nil {
+			p.SetDetail(err.Error())
 		}
-		return &BadRequest{
-			DefaultProblem: p,
-			InvalidParams:  fields,
+		switch bp := p.(type) {
+		case *BadRequest:
+			bp.InvalidParams = append(bp.InvalidParams, fields...)
+			return bp
+		case *DefaultProblem:
+			return &BadRequest{
+				DefaultProblem: p.(*DefaultProblem),
+				InvalidParams:  fields,
+			}
 		}
+		return p
+	}
+}
+
+func convertNamespaceToJsonPointer(namespace string) string {
+	names := strings.Split(namespace, ".")
+	buf := strings.Builder{}
+	for i, n := range names {
+		if i == 0 {
+			buf.WriteRune('#')
+		} else {
+			buf.WriteString("/")
+			if strings.HasSuffix(n, "]") {
+				n = strings.ReplaceAll(n, "[", "/")
+				buf.WriteString(strings.ReplaceAll(n, "]", ""))
+			} else {
+				buf.WriteString(n)
+			}
+		}
+	}
+	return buf.String()
+}
+
+// ValidationErrors Create RFC9457-style validation error messages.
+func ValidationErrors(err error, validErrors ...ValidationError) Option {
+	var fields []ValidationError
+	ve := &validator.ValidationErrors{}
+	ne := &strconv.NumError{}
+	ute := &json.UnmarshalTypeError{}
+	if errors.As(err, ve) {
+		fields = make([]ValidationError, 0, len(*ve))
+		for _, v := range *ve {
+			p := ValidationError{v.Tag(), convertNamespaceToJsonPointer(v.Namespace())}
+			fields = append(fields, p)
+		}
+	} else if errors.As(err, &ne) {
+		fields = []ValidationError{
+			{ne.Num, ne.Func},
+		}
+	} else if errors.As(err, &ute) {
+		fields = []ValidationError{
+			{"Illegal value type", ute.Field},
+		}
+	}
+	fields = append(fields, validErrors...)
+	return func(p DefaultParams) Problem {
+		if err != nil {
+			p.SetDetail(err.Error())
+		}
+		switch bp := p.(type) {
+		case *BadRequest:
+			bp.Errors = append(bp.Errors, fields...)
+			return bp
+		case *DefaultProblem:
+			return &BadRequest{
+				DefaultProblem: p.(*DefaultProblem),
+				Errors:         fields,
+			}
+		}
+		return p
 	}
 }
 
@@ -221,15 +292,19 @@ func (p *CodeProblem) Wrap() error {
 	return &ProblemError{problem: p}
 }
 
-func NewCodeProblem(code string, typ ...string) func(p *DefaultProblem) Problem {
-	return func(p *DefaultProblem) Problem {
-		if len(typ) > 0 {
-			p.Type = typ[0]
+func Code(code string) Option {
+	return func(p DefaultParams) Problem {
+		switch dp := p.(type) {
+		case *CodeProblem:
+			dp.Code = code
+			return dp
+		case *DefaultProblem:
+			return &CodeProblem{
+				DefaultProblem: dp,
+				Code:           code,
+			}
 		}
-		return &CodeProblem{
-			DefaultProblem: p,
-			Code:           code,
-		}
+		return p
 	}
 }
 
@@ -238,10 +313,9 @@ type InvalidParam struct {
 	Reason string `json:"reason"`
 }
 
-type ParamError []InvalidParam
-
-func (err ParamError) Error() string {
-	return "invalid parameters"
+type ValidationError struct {
+	Detail  string `json:"detail"`
+	Pointer string `json:"pointer"`
 }
 
 type MsgFunc func() string
@@ -259,25 +333,24 @@ func selectMsg(err error, f ...MsgFunc) MsgFunc {
 	}
 }
 
-func ServerProblemOf(ctx context.Context, path string, err error, f ...MsgFunc) Problem {
-	switch err := err.(type) {
-	case *ProblemError:
-		if err.Path == "" {
-			err.Path = path
+func Of(ctx context.Context, path string, err error, f ...MsgFunc) Problem {
+	pe := &ProblemError{}
+	if errors.As(err, &pe) {
+		if pe.Path == "" {
+			pe.Path = path
 		}
-		return err.Problem()
-	default:
-		msg := selectMsg(err, f...)
-		if st, ok := status.FromError(errors.Unwrap(err)); ok {
-			switch st.Code() {
-			case codes.Unavailable:
-				log.EmbedObject(ctx, log.Warn(ctx, 1)).Msgf("%+v", err)
-				return New(path).Unavailable(msg())
-			}
-		}
-		log.EmbedObject(ctx, log.Error(ctx, 1)).Stack().Err(err).Msgf("%+v", err)
-		return New(path).InternalServerError(msg())
+		return pe.Problem()
 	}
+	msg := selectMsg(err, f...)
+	if st, ok := status.FromError(errors.Unwrap(err)); ok {
+		switch st.Code() {
+		case codes.Unavailable:
+			log.EmbedObject(ctx, log.Warn(ctx, 1)).Stack().Msgf("%+v", err)
+			return New(Instance(path)).Unavailable(msg())
+		}
+	}
+	log.EmbedObject(ctx, log.Error(ctx, 1)).Stack().Err(err).Msgf("%+v", err)
+	return New(Instance(path)).InternalServerError(msg())
 }
 
 func Bind(ctx context.Context, status int, body []byte, f ...func(status int) Problem) (problem Problem, err error) {

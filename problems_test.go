@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/go-playground/assert/v2"
@@ -14,7 +16,7 @@ import (
 )
 
 func TestNotFound(t *testing.T) {
-	problem := New("/test", NewCodeProblem("NotFound")).NotFound("Not Found")
+	problem := New(Instance("/test"), Code("NotFound")).NotFound("Not Found")
 	if code, ok := problem.(*CodeProblem); !ok {
 		t.Errorf("invalid struct. %v", code)
 	} else {
@@ -41,7 +43,7 @@ func TestNotFound(t *testing.T) {
 }
 
 func TestNewBadRequest(t *testing.T) {
-	p := New("", NewBadRequest(nil,
+	p := New(InvalidParams(nil,
 		InvalidParam{
 			Name:   "X-Test-Key",
 			Reason: "required",
@@ -52,7 +54,7 @@ func TestNewBadRequest(t *testing.T) {
 }
 
 func TestDefaultProblem_JSON(t *testing.T) {
-	problem := New("").Unavailable("unauthorized")
+	problem := New().Unavailable("unauthorized")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		problem.JSON(context.TODO(), w)
 	}))
@@ -71,13 +73,25 @@ func TestDefaultProblem_JSON(t *testing.T) {
 }
 
 func TestBuilder_BadRequest(t *testing.T) {
-	type TestObject struct {
+	type NestedObject struct {
 		Name string `json:"name" validate:"required"`
 	}
-	obj := &TestObject{}
+	type TestObject struct {
+		Name string         `json:"name" validate:"required"`
+		List []NestedObject `json:"nested" validate:"required,dive"`
+	}
+	obj := &TestObject{
+		List: []NestedObject{
+			{},
+		},
+	}
 	validate := validator.New()
+	validate.RegisterTagNameFunc(func(fld reflect.StructField) string {
+		name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
+		return name
+	})
 	err := validate.Struct(obj)
-	p := New("/validate", NewBadRequest(err)).BadRequest("bad request")
+	p := New(Instance("/validate"), ValidationErrors(err), InvalidParams(err)).BadRequest("bad request")
 	if br, ok := p.(*BadRequest); ok {
 		if br.Instance != "/validate" {
 			t.Errorf("expect = /validate, actual = %s", br.Instance)
@@ -95,21 +109,48 @@ func TestBuilder_BadRequest(t *testing.T) {
 		if br.Title != expect {
 			t.Errorf("expect = %s, actual = %s", expect, br.Title)
 		}
-		if len(br.InvalidParams) == 1 {
-			params := br.InvalidParams[0]
-			if params.Name != "Name" {
-				t.Errorf("expect = Name, actual = %s", params.Name)
+		if len(br.InvalidParams) == 2 {
+			param := br.InvalidParams[0]
+			if param.Name != "name" {
+				t.Errorf("expect = Name, actual = %s", param.Name)
 			}
-			if params.Reason != "required" {
-				t.Errorf("expect = required, actual = %s", params.Reason)
+			if param.Reason != "required" {
+				t.Errorf("expect = required, actual = %s", param.Reason)
 			}
+			param = br.InvalidParams[1]
+			if param.Name != "name" {
+				t.Errorf("expect = name, actual = %s", param.Name)
+			}
+			if param.Reason != "required" {
+				t.Errorf("expect = required, actual = %s", param.Reason)
+			}
+		} else {
+			t.Errorf("invalid length. %v", br.InvalidParams)
+		}
+		if len(br.Errors) == 2 {
+			list := br.Errors
+			if list[0].Detail != "required" {
+				t.Errorf("expect = required is a required field, actual = %s", br.Errors[0].Detail)
+			}
+			if list[0].Pointer != "#/name" {
+				t.Errorf("expect = #/name is a required field, actual = %s", br.Errors[0].Pointer)
+			}
+			if list[1].Detail != "required" {
+				t.Errorf("expect = required is a required field, actual = %s", br.Errors[1].Detail)
+			}
+			if list[1].Pointer != "#/nested/0/name" {
+				t.Errorf("expect = #/nested/0/name is a required field, actual = %s", br.Errors[1].Pointer)
+			}
+		} else {
+			t.Errorf("invalid length. %v", br.Errors)
+
 		}
 	}
 }
 
-func TestServerProblemOf(t *testing.T) {
+func TestOf(t *testing.T) {
 	err := errors.New("test error")
-	p := ServerProblemOf(context.TODO(), "/problems", err)
+	p := Of(context.TODO(), "/problems", err)
 	if dp, ok := p.(*DefaultProblem); ok {
 		if dp.Instance != "/problems" {
 			t.Errorf("expect = /problems, actual = %s", dp.Instance)
@@ -130,8 +171,8 @@ func TestServerProblemOf(t *testing.T) {
 	}
 }
 
-func TestServerProblemOfNil(t *testing.T) {
-	p := ServerProblemOf(context.TODO(), "/problems", nil)
+func TestOfNil(t *testing.T) {
+	p := Of(context.TODO(), "/problems", nil)
 	if dp, ok := p.(*DefaultProblem); ok {
 		if dp.Instance != "/problems" {
 			t.Errorf("expect = /problems, actual = %s", dp.Instance)
@@ -153,7 +194,7 @@ func TestServerProblemOfNil(t *testing.T) {
 }
 
 func TestCodeProblem(t *testing.T) {
-	p := New("/problems", NewCodeProblem("E001", "http://localhost:8080/test?code=E001")).Unavailable("")
+	p := New(Instance("/problems"), Code("E001"), Type("http://localhost:8080/test?code=E001")).Unavailable("")
 	if cp, ok := p.(*CodeProblem); ok {
 		if cp.Type != "http://localhost:8080/test?code=E001" {
 			t.Errorf("expect = http://localhost:8080/test?code=E001, actual = %s", cp.Type)
