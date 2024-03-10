@@ -1,7 +1,9 @@
 package problems
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -91,7 +93,8 @@ func TestBuilder_BadRequest(t *testing.T) {
 		return name
 	})
 	err := validate.Struct(obj)
-	p := New(Instance("/validate"), ValidationErrors(err), InvalidParams(err)).BadRequest("bad request")
+	req, _ := http.NewRequest(http.MethodPost, "http://localhost:8080/validate", nil)
+	p := New(Path(req), ValidationErrors(err), InvalidParams(err)).BadRequest("bad request")
 	if br, ok := p.(*BadRequest); ok {
 		if br.Instance != "/validate" {
 			t.Errorf("expect = /validate, actual = %s", br.Instance)
@@ -204,5 +207,55 @@ func TestCodeProblem(t *testing.T) {
 		}
 	} else {
 		t.Errorf("expect = CodeProblem, actual=%v", cp)
+	}
+}
+
+func TestBind(t *testing.T) {
+	p := New(Instance("/problems")).BadRequest("bad request")
+	bin, err := json.Marshal(p)
+	if err != nil {
+		t.Errorf("%v", err)
+	}
+	if bp, err := Bind(context.TODO(), http.StatusBadRequest, bin); err != nil {
+		t.Errorf("%v", err)
+	} else {
+		if bp.ProblemStatus() != http.StatusBadRequest {
+			t.Errorf("expect = %d, actual = %d", http.StatusBadRequest, bp.ProblemStatus())
+		}
+		req, ok := bp.(*BadRequest)
+		if !ok {
+			t.Errorf("invalid struct. %v", bp)
+		}
+		if req.Instance != "/problems" {
+			t.Errorf("expect = /problems, actual = %s", req.Instance)
+		}
+		if req.Detail != "bad request" {
+			t.Errorf("expect = bad request, actual = %s", req.Detail)
+		}
+	}
+}
+
+func TestDecode(t *testing.T) {
+	p := New(Instance("/problems")).BadRequest("bad request")
+	bin, err := json.Marshal(p)
+	if err != nil {
+		t.Errorf("%v", err)
+	}
+	if bp, err := Decode(context.TODO(), http.StatusBadRequest, bytes.NewBuffer(bin)); err != nil {
+		t.Errorf("%v", err)
+	} else {
+		if bp.ProblemStatus() != http.StatusBadRequest {
+			t.Errorf("expect = %d, actual = %d", http.StatusBadRequest, bp.ProblemStatus())
+		}
+		req, ok := bp.(*BadRequest)
+		if !ok {
+			t.Errorf("invalid struct. %v", bp)
+		}
+		if req.Instance != "/problems" {
+			t.Errorf("expect = /problems, actual = %s", req.Instance)
+		}
+		if req.Detail != "bad request" {
+			t.Errorf("expect = bad request, actual = %s", req.Detail)
+		}
 	}
 }
