@@ -68,12 +68,17 @@ type DefaultParams interface {
 	Problem
 }
 
+type CodeParameter interface {
+	SetCode(code string)
+}
+
 type DefaultProblem struct {
 	Type     string `json:"type"`
 	Title    string `json:"title"`
 	Status   int    `json:"status,omitempty"`
 	Detail   string `json:"detail,omitempty"`
 	Instance string `json:"instance,omitempty"`
+	Code     string `json:"code,omitempty"`
 }
 
 func (p *DefaultProblem) SetParams(url, detail string) {
@@ -95,6 +100,9 @@ func (p *DefaultProblem) SetDetail(detail string) {
 }
 func (p *DefaultProblem) SetInstance(instance string) {
 	p.Instance = instance
+}
+func (p *DefaultProblem) SetCode(code string) {
+	p.Code = code
 }
 func (p *DefaultProblem) ProblemStatus() int {
 	return p.Status
@@ -282,6 +290,9 @@ type CodeProblem struct {
 	Code string `json:"code"`
 }
 
+func (p *CodeProblem) SetCode(code string) {
+	p.Code = code
+}
 func (p *CodeProblem) JSON(ctx context.Context, w http.ResponseWriter) {
 	WriteJson(ctx, w, p.ProblemStatus(), p)
 }
@@ -294,6 +305,10 @@ func (p *CodeProblem) Wrap() error {
 
 func Code(code string) Option {
 	return func(p DefaultParams) Problem {
+		if p := p.(CodeParameter); p != nil {
+			p.SetCode(code)
+			return p.(Problem)
+		}
 		switch dp := p.(type) {
 		case *CodeProblem:
 			dp.Code = code
