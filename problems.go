@@ -72,6 +72,10 @@ type CodeParameter interface {
 	SetCode(code string)
 }
 
+type Wrapper interface {
+	WrapError(err error)
+}
+
 type DefaultProblem struct {
 	Type     string `json:"type"`
 	Title    string `json:"title"`
@@ -79,6 +83,11 @@ type DefaultProblem struct {
 	Detail   string `json:"detail,omitempty"`
 	Instance string `json:"instance,omitempty"`
 	Code     string `json:"code,omitempty"`
+	err      error
+}
+
+func (p *DefaultProblem) WrapError(err error) {
+	p.err = err
 }
 
 func (p *DefaultProblem) SetParams(url, detail string) {
@@ -115,7 +124,7 @@ func (p *DefaultProblem) XML(ctx context.Context, w http.ResponseWriter) {
 	WriteXml(ctx, w, p.ProblemStatus(), p)
 }
 func (p *DefaultProblem) Wrap() error {
-	return &ProblemError{problem: p}
+	return &ProblemError{problem: p, err: p.err}
 }
 func (p *DefaultProblem) String() string {
 	bytes, err := json.Marshal(p)
@@ -132,9 +141,9 @@ func NewProblem(status int) *DefaultProblem {
 	return p
 }
 
-func Wrap(p Problem) error {
-	return &ProblemError{problem: p}
-}
+//func Wrap(p Problem) error {
+//	return &ProblemError{problem: p}
+//}
 
 func WrapError(err error) error {
 	return &ProblemError{err: err}
@@ -183,7 +192,7 @@ func (p *BadRequest) XML(ctx context.Context, w http.ResponseWriter) {
 	WriteXml(ctx, w, p.ProblemStatus(), p)
 }
 func (p *BadRequest) Wrap() error {
-	return &ProblemError{problem: p}
+	return &ProblemError{problem: p, err: p.err}
 }
 
 // InvalidParams Create RFC7807-style validation error messages
@@ -300,7 +309,7 @@ func (p *CodeProblem) XML(ctx context.Context, w http.ResponseWriter) {
 	WriteXml(ctx, w, p.ProblemStatus(), p)
 }
 func (p *CodeProblem) Wrap() error {
-	return &ProblemError{problem: p}
+	return &ProblemError{problem: p, err: p.err}
 }
 
 func Code(code string) Option {
@@ -318,6 +327,15 @@ func Code(code string) Option {
 				DefaultProblem: dp,
 				Code:           code,
 			}
+		}
+		return p
+	}
+}
+
+func Wrap(err error) Option {
+	return func(p DefaultParams) Problem {
+		if wrap, ok := p.(Wrapper); ok {
+			wrap.WrapError(err)
 		}
 		return p
 	}
@@ -365,7 +383,7 @@ func Of(ctx context.Context, path string, err error, f ...MsgFunc) Problem {
 		}
 	}
 	log.EmbedObject(ctx, log.Error(ctx, 1)).Stack().Err(err).Msgf("%+v", err)
-	return New(Instance(path)).InternalServerError(msg())
+	return New(Instance(path), Wrap(err)).InternalServerError(msg())
 }
 
 func Bind(ctx context.Context, status int, body []byte, f ...func(status int) Problem) (problem Problem, err error) {
@@ -376,6 +394,14 @@ func Bind(ctx context.Context, status int, body []byte, f ...func(status int) Pr
 	if err = json.Unmarshal(body, problem); err != nil {
 		log.Error(ctx).Msg(string(body))
 		return problem, fmt.Errorf("%w", err)
+	}
+	if decoder, ok := problem.(GraphQLDecoder); ok {
+		switch status {
+		case http.StatusBadRequest:
+			problem = decoder.Decode(&BadRequest{})
+		default:
+			problem = decoder.Decode(&DefaultProblem{})
+		}
 	}
 	return
 }
