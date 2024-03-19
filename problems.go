@@ -141,9 +141,9 @@ func NewProblem(status int) *DefaultProblem {
 	return p
 }
 
-//func Wrap(p Problem) error {
-//	return &ProblemError{problem: p}
-//}
+func WrapProblem(p Problem) error {
+	return &ProblemError{problem: p}
+}
 
 func WrapError(err error) error {
 	return &ProblemError{err: err}
