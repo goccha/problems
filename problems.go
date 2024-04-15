@@ -272,7 +272,7 @@ func ValidationErrors(err error, validErrors ...ValidationError) Option {
 		}
 	} else if errors.As(err, &ute) {
 		fields = []ValidationError{
-			{"Illegal value type", ute.Field},
+			{"Illegal value type", convertNamespaceToJsonPointer(ute.Field)},
 		}
 	}
 	fields = append(fields, validErrors...)
