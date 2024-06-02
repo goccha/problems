@@ -116,12 +116,25 @@ func (p *DefaultProblem) Encode() GraphQLError {
 	return err
 }
 func (p *DefaultProblem) Decode(err GraphQLError) Problem {
-	p.Type = err.Extensions["type"].(string)
-	p.Title = err.Extensions["title"].(string)
-	p.Status = err.Extensions["status"].(int)
+	if err.Extensions == nil {
+		return p
+	}
+	if err.Extensions["type"] != nil {
+		p.Type = err.Extensions["type"].(string)
+	}
+	if err.Extensions["title"] != nil {
+		p.Title = err.Extensions["title"].(string)
+	}
+	if err.Extensions["status"] != nil {
+		p.Status = err.Extensions["status"].(int)
+	}
 	p.Detail = err.Message
-	p.Instance = err.Extensions["instance"].(string)
-	p.Code = err.Extensions["code"].(string)
+	if err.Extensions["instance"] != nil {
+		p.Instance = err.Extensions["instance"].(string)
+	}
+	if err.Extensions["code"] != nil {
+		p.Code = err.Extensions["code"].(string)
+	}
 	return p
 }
 func (p *DefaultProblem) GraphQL(ctx context.Context, w http.ResponseWriter) {
