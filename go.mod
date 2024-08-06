@@ -2,8 +2,6 @@ module github.com/goccha/problems
 
 go 1.21
 
-toolchain go1.22.5
-
 require (
 	github.com/go-playground/assert/v2 v2.2.0
 	github.com/go-playground/validator/v10 v10.22.0
