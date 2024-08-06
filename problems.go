@@ -241,7 +241,7 @@ func convertNamespaceToJsonPointer(namespace string) string {
 	for i, n := range names {
 		if i == 0 {
 			buf.WriteRune('#')
-		} else {
+		} else if len(n) > 0 && n != "-" {
 			buf.WriteString("/")
 			if strings.HasSuffix(n, "]") {
 				n = strings.ReplaceAll(n, "[", "/")
@@ -255,7 +255,7 @@ func convertNamespaceToJsonPointer(namespace string) string {
 }
 
 // ValidationErrors Create RFC9457-style validation error messages.
-func ValidationErrors(err error, validErrors ...ValidationError) Option {
+func ValidationErrors(err error, verrs ...ValidationError) Option {
 	var fields []ValidationError
 	ve := &validator.ValidationErrors{}
 	ne := &strconv.NumError{}
@@ -275,7 +275,7 @@ func ValidationErrors(err error, validErrors ...ValidationError) Option {
 			{"Illegal value type", convertNamespaceToJsonPointer(ute.Field)},
 		}
 	}
-	fields = append(fields, validErrors...)
+	fields = append(fields, verrs...)
 	return func(p DefaultParams) Problem {
 		if err != nil {
 			p.SetDetail(err.Error())
@@ -296,7 +296,6 @@ func ValidationErrors(err error, validErrors ...ValidationError) Option {
 
 type CodeProblem struct {
 	*DefaultProblem
-	Code string `json:"code"`
 }
 
 func (p *CodeProblem) SetCode(code string) {
@@ -323,9 +322,9 @@ func Code(code string) Option {
 			dp.Code = code
 			return dp
 		case *DefaultProblem:
+			dp.Code = code
 			return &CodeProblem{
 				DefaultProblem: dp,
-				Code:           code,
 			}
 		}
 		return p
@@ -349,6 +348,10 @@ type InvalidParam struct {
 type ValidationError struct {
 	Detail  string `json:"detail"`
 	Pointer string `json:"pointer"`
+}
+
+func (ve ValidationError) Error() string {
+	return fmt.Sprintf("Property '%s' does not match the schema", ve.Pointer)
 }
 
 type MsgFunc func() string

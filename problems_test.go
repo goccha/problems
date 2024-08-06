@@ -19,8 +19,8 @@ import (
 
 func TestNotFound(t *testing.T) {
 	problem := New(Instance("/test"), Code("NotFound")).NotFound("Not Found")
-	if code, ok := problem.(*CodeProblem); !ok {
-		t.Errorf("invalid struct. %v", code)
+	if code, ok := problem.(*DefaultProblem); !ok {
+		t.Errorf("invalid struct. %v", problem)
 	} else {
 		if code.Instance != "/test" {
 			t.Errorf("expect = /test, actual = %s", code.Instance)
@@ -198,15 +198,15 @@ func TestOfNil(t *testing.T) {
 
 func TestCodeProblem(t *testing.T) {
 	p := New(Instance("/problems"), Code("E001"), Type("http://localhost:8080/test?code=E001")).Unavailable("")
-	if cp, ok := p.(*CodeProblem); ok {
-		if cp.Type != "http://localhost:8080/test?code=E001" {
-			t.Errorf("expect = http://localhost:8080/test?code=E001, actual = %s", cp.Type)
+	if dp, ok := p.(*DefaultProblem); ok {
+		if dp.Type != "http://localhost:8080/test?code=E001" {
+			t.Errorf("expect = http://localhost:8080/test?code=E001, actual = %s", dp.Type)
 		}
-		if cp.Code != "E001" {
-			t.Errorf("expect = E001, actual = %s", cp.Code)
+		if dp.Code != "E001" {
+			t.Errorf("expect = E001, actual = %s", dp.Code)
 		}
 	} else {
-		t.Errorf("expect = CodeProblem, actual=%v", cp)
+		t.Errorf("expect = DefaultProblem, actual=%v", p)
 	}
 }
 
@@ -256,6 +256,33 @@ func TestDecode(t *testing.T) {
 		}
 		if req.Detail != "bad request" {
 			t.Errorf("expect = bad request, actual = %s", req.Detail)
+		}
+	}
+}
+
+func TestNamespace(t *testing.T) {
+	type Test struct {
+		Value string `json:"value" validate:"required"`
+	}
+
+	tv := &Test{}
+	validation := validator.New(validator.WithRequiredStructEnabled())
+	validation.RegisterTagNameFunc(func(fld reflect.StructField) string {
+		name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
+		if name == "-" {
+			return ""
+		}
+		return name
+	})
+	if err := validation.Struct(tv); err != nil {
+		var ve validator.ValidationErrors
+		if errors.As(err, &ve) {
+			for _, v := range ve {
+				jp := convertNamespaceToJsonPointer(v.Namespace())
+				if jp != "#/value" {
+					t.Errorf("expect = #/value, actual = %s", jp)
+				}
+			}
 		}
 	}
 }
