@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/go-playground/assert/v2"
+	ut "github.com/go-playground/universal-translator"
 	"github.com/go-playground/validator/v10"
 	"github.com/goccha/http-constants/pkg/headers"
 	"github.com/goccha/http-constants/pkg/mimetypes"
@@ -285,4 +287,183 @@ func TestNamespace(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestValidationErrors(t *testing.T) {
+	verr := validator.ValidationErrors{}
+	verr = append(verr, &fieldError{tag: "a", ns: "a"})
+	problem := &DefaultProblem{}
+	p := ValidationErrors(verr)(problem)
+	if v, ok := p.(*BadRequest); !ok {
+		t.Errorf("expect = BadRequest, actual = %v", p)
+	} else {
+		if len(v.Errors) != 1 {
+			t.Errorf("expect = error, actual = %v", v)
+		}
+	}
+	var err error
+	_, err = strconv.ParseInt("a", 10, 32)
+	problem = &DefaultProblem{}
+	p = ValidationErrors(err)(problem)
+	if v, ok := p.(*BadRequest); !ok {
+		t.Errorf("expect = BadRequest, actual = %v", p)
+	} else {
+		if len(v.Errors) != 1 {
+			t.Errorf("expect = error, actual = %v", v)
+		}
+	}
+	err = &json.UnmarshalTypeError{
+		Value:  "",
+		Type:   reflect.TypeOf(map[string]interface{}{}),
+		Offset: 0,
+		Struct: "",
+		Field:  "test",
+	}
+	problem = &DefaultProblem{}
+	p = ValidationErrors(err)(problem)
+	if v, ok := p.(*BadRequest); !ok {
+		t.Errorf("expect = BadRequest, actual = %v", p)
+	} else {
+		if len(v.Errors) != 1 {
+			t.Errorf("expect = error, actual = %v", v)
+		}
+	}
+
+}
+
+func TestInvalidParams(t *testing.T) {
+	verr := validator.ValidationErrors{}
+	verr = append(verr, &fieldError{tag: "a", ns: "a"})
+	problem := &DefaultProblem{}
+	p := InvalidParams(verr)(problem)
+	if v, ok := p.(*BadRequest); !ok {
+		t.Errorf("expect = BadRequest, actual = %v", p)
+	} else {
+		if len(v.InvalidParams) != 1 {
+			t.Errorf("expect = error, actual = %v", v)
+		}
+	}
+	var err error
+	_, err = strconv.ParseInt("a", 10, 32)
+	problem = &DefaultProblem{}
+	p = InvalidParams(err)(problem)
+	if v, ok := p.(*BadRequest); !ok {
+		t.Errorf("expect = BadRequest, actual = %v", p)
+	} else {
+		if len(v.InvalidParams) != 1 {
+			t.Errorf("expect = error, actual = %v", v)
+		}
+	}
+	err = &json.UnmarshalTypeError{
+		Value:  "",
+		Type:   reflect.TypeOf(map[string]interface{}{}),
+		Offset: 0,
+		Struct: "",
+		Field:  "test",
+	}
+	problem = &DefaultProblem{}
+	p = InvalidParams(err)(problem)
+	if v, ok := p.(*BadRequest); !ok {
+		t.Errorf("expect = BadRequest, actual = %v", p)
+	} else {
+		if len(v.InvalidParams) != 1 {
+			t.Errorf("expect = error, actual = %v", v)
+		}
+	}
+
+}
+
+type fieldError struct {
+	tag            string
+	actualTag      string
+	ns             string
+	structNs       string
+	fieldLen       uint8
+	structfieldLen uint8
+	value          interface{}
+	param          string
+	kind           reflect.Kind
+	typ            reflect.Type
+}
+
+// Tag returns the validation tag that failed.
+func (fe *fieldError) Tag() string {
+	return fe.tag
+}
+
+// ActualTag returns the validation tag that failed, even if an
+// alias the actual tag within the alias will be returned.
+func (fe *fieldError) ActualTag() string {
+	return fe.actualTag
+}
+
+// Namespace returns the namespace for the field error, with the tag
+// name taking precedence over the field's actual name.
+func (fe *fieldError) Namespace() string {
+	return fe.ns
+}
+
+// StructNamespace returns the namespace for the field error, with the field's
+// actual name.
+func (fe *fieldError) StructNamespace() string {
+	return fe.structNs
+}
+
+// Field returns the field's name with the tag name taking precedence over the
+// field's actual name.
+func (fe *fieldError) Field() string {
+
+	return fe.ns[len(fe.ns)-int(fe.fieldLen):]
+	// // return fe.field
+	// fld := fe.ns[len(fe.ns)-int(fe.fieldLen):]
+
+	// log.Println("FLD:", fld)
+
+	// if len(fld) > 0 && fld[:1] == "." {
+	// 	return fld[1:]
+	// }
+
+	// return fld
+}
+
+// StructField returns the field's actual name from the struct, when able to determine.
+func (fe *fieldError) StructField() string {
+	// return fe.structField
+	return fe.structNs[len(fe.structNs)-int(fe.structfieldLen):]
+}
+
+// Value returns the actual field's value in case needed for creating the error
+// message
+func (fe *fieldError) Value() interface{} {
+	return fe.value
+}
+
+// Param returns the param value, in string form for comparison; this will
+// also help with generating an error message
+func (fe *fieldError) Param() string {
+	return fe.param
+}
+
+// Kind returns the Field's reflect Kind
+func (fe *fieldError) Kind() reflect.Kind {
+	return fe.kind
+}
+
+// Type returns the Field's reflect Type
+func (fe *fieldError) Type() reflect.Type {
+	return fe.typ
+}
+
+// Error returns the fieldError's error message
+func (fe *fieldError) Error() string {
+	return ""
+}
+
+// Translate returns the FieldError's translated error
+// from the provided 'ut.Translator' and registered 'TranslationFunc'
+//
+// NOTE: if no registered translation can be found, it returns the original
+// untranslated error message.
+func (fe *fieldError) Translate(ut ut.Translator) string {
+	return ""
 }
