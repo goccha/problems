@@ -198,12 +198,12 @@ func (p *BadRequest) Wrap() error {
 // InvalidParams Create RFC7807-style validation error messages
 func InvalidParams(err error, params ...InvalidParam) Option {
 	var fields []InvalidParam
-	ve := &validator.ValidationErrors{}
-	ne := &strconv.NumError{}
-	ute := &json.UnmarshalTypeError{}
-	if errors.As(err, ve) {
-		fields = make([]InvalidParam, 0, len(*ve))
-		for _, v := range *ve {
+	var ve validator.ValidationErrors
+	var ne *strconv.NumError
+	var ute *json.UnmarshalTypeError
+	if errors.As(err, &ve) {
+		fields = make([]InvalidParam, 0, len(ve))
+		for _, v := range ve {
 			p := InvalidParam{v.Field(), v.Tag()}
 			fields = append(fields, p)
 		}
@@ -257,12 +257,12 @@ func convertNamespaceToJsonPointer(namespace string) string {
 // ValidationErrors Create RFC9457-style validation error messages.
 func ValidationErrors(err error, verrs ...ValidationError) Option {
 	var fields []ValidationError
-	ve := &validator.ValidationErrors{}
-	ne := &strconv.NumError{}
-	ute := &json.UnmarshalTypeError{}
-	if errors.As(err, ve) {
-		fields = make([]ValidationError, 0, len(*ve))
-		for _, v := range *ve {
+	var ve validator.ValidationErrors
+	var ne *strconv.NumError
+	var ute *json.UnmarshalTypeError
+	if errors.As(err, &ve) {
+		fields = make([]ValidationError, 0, len(ve))
+		for _, v := range ve {
 			p := ValidationError{v.Tag(), convertNamespaceToJsonPointer(v.Namespace())}
 			fields = append(fields, p)
 		}
