@@ -8,89 +8,88 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
-	"strings"
 
-	"github.com/go-playground/validator/v10"
-	"github.com/goccha/http-constants/pkg/headers"
-	"github.com/goccha/http-constants/pkg/mimetypes"
 	"github.com/goccha/logging/log"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 const (
 	DefaultType = "about:blank"
 )
 
-type Renderer interface {
-	JSON(ctx context.Context, w http.ResponseWriter)
-	XML(ctx context.Context, w http.ResponseWriter)
-	Wrap() error
-}
-
-func setHeader(ctx context.Context, w http.ResponseWriter, status int, mimetype string) {
-	w.Header().Set(headers.ContentType, mimetype)
-	if status > 0 {
-		w.WriteHeader(status)
-	} else {
-		w.WriteHeader(http.StatusInternalServerError)
-	}
-}
-
-func WriteJson(ctx context.Context, w http.ResponseWriter, status int, v interface{}) {
-	setHeader(ctx, w, status, mimetypes.ProblemJson)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		log.EmbedObject(ctx, log.Warn(ctx).Err(err)).Send()
-	}
-}
-
-func WriteXml(ctx context.Context, w http.ResponseWriter, status int, v interface{}) {
-	setHeader(ctx, w, status, mimetypes.ProblemXml)
-	if err := xml.NewEncoder(w).Encode(v); err != nil {
-		log.EmbedObject(ctx, log.Warn(ctx).Err(err)).Send()
-	}
-}
-
 type Problem interface {
+	// ProblemStatus returns the status code of the problem.
+	// Deprecated: Use StatusCode instead.
 	ProblemStatus() int
+	// StatusCode returns the status code of the problem.
+	StatusCode() int
+	Error() string
 	Wrap() error
 	String() string
+	WithMessage(format string, args ...interface{}) Problem
+	Message() string
 	Renderer
 }
 
-type DefaultParams interface {
-	SetParams(url, detail string)
+type ProblemType interface {
 	SetType(url string)
-	SetTitle(title string)
-	SetDetail(detail string)
-	SetInstance(instance string)
-	Problem
 }
-
-type CodeParameter interface {
-	SetCode(code string)
+type ProblemTitle interface {
+	SetTitle(title string)
+}
+type ProblemDetail interface {
+	SetDetail(detail string)
+}
+type ProblemInstance interface {
+	SetInstance(instance string)
+}
+type ProblemStatus interface {
+	SetStatus(status int)
+}
+type ProblemExtension interface {
+	Extension(key string, value interface{})
 }
 
 type Wrapper interface {
 	WrapError(err error)
+	Unwrap() error
 }
 
-type DefaultProblem struct {
-	Type     string `json:"type"`
-	Title    string `json:"title"`
-	Status   int    `json:"status,omitempty"`
-	Detail   string `json:"detail,omitempty"`
-	Instance string `json:"instance,omitempty"`
-	Code     string `json:"code,omitempty"`
-	err      error
+type Extendable interface {
+	Extended() bool
+	Map() (map[string]interface{}, bool)
 }
 
-func (p *DefaultProblem) WrapError(err error) {
+type ProblemDetails struct {
+	XMLName       xml.Name          `json:"-" xml:"problem"`
+	Xmlns         string            `json:"-" xml:"xmlns,attr"`
+	Type          string            `json:"type" xml:"type"`
+	Title         string            `json:"title" xml:"title,attr,omitempty"`
+	Status        int               `json:"status,omitempty" xml:"status,attr,omitempty"`
+	Detail        string            `json:"detail,omitempty" xml:"xsd:detail,attr,omitempty"`
+	Instance      string            `json:"instance,omitempty" xml:"instance,attr,omitempty"`
+	Code          string            `json:"code,omitempty" xml:"code,attr,omitempty"`
+	InvalidParams []InvalidParam    `json:"invalid-params,omitempty" xml:"invalid-params,omitempty"`
+	Errors        []ValidationError `json:"errors,omitempty" xml:"errors,omitempty"`
+	extensions    map[string]interface{}
+	err           error
+}
+
+// WithMessage sets the detail message of the problem.
+func (p *ProblemDetails) WithMessage(format string, args ...interface{}) Problem {
+	p.Detail = fmt.Sprintf(format, args...)
+	return p
+}
+
+// Message returns the detail message of the problem.
+func (p *ProblemDetails) Message() string {
+	return p.Detail
+}
+
+func (p *ProblemDetails) WrapError(err error) {
 	p.err = err
 }
 
-func (p *DefaultProblem) SetParams(url, detail string) {
+func (p *ProblemDetails) SetParams(url, detail string) {
 	if p.Type == DefaultType {
 		p.Type = url
 	}
@@ -98,35 +97,207 @@ func (p *DefaultProblem) SetParams(url, detail string) {
 		p.Detail = detail
 	}
 }
-func (p *DefaultProblem) SetType(url string) {
-	p.Type = url
+func (p *ProblemDetails) SetType(url string) {
+	if url != "" {
+		p.Type = url
+	}
 }
-func (p *DefaultProblem) SetTitle(title string) {
-	p.Title = title
+func (p *ProblemDetails) SetTitle(title string) {
+	if title != "" {
+		p.Title = title
+	}
 }
-func (p *DefaultProblem) SetDetail(detail string) {
+func (p *ProblemDetails) SetDetail(detail string) {
 	p.Detail = detail
 }
-func (p *DefaultProblem) SetInstance(instance string) {
+func (p *ProblemDetails) SetInstance(instance string) {
 	p.Instance = instance
 }
-func (p *DefaultProblem) SetCode(code string) {
+func (p *ProblemDetails) SetStatus(status int) {
+	p.Status = status
+}
+func (p *ProblemDetails) SetCode(code string) {
 	p.Code = code
 }
-func (p *DefaultProblem) ProblemStatus() int {
+func (p *ProblemDetails) SetValidationErrors(ve []ValidationError) {
+	p.Errors = ve
+}
+func (p *ProblemDetails) SetInvalidParams(params []InvalidParam) {
+	p.InvalidParams = params
+}
+func (p *ProblemDetails) Extension(key string, value interface{}) {
+	if p.extensions == nil {
+		p.extensions = make(map[string]interface{})
+	}
+	p.extensions[key] = value
+}
+
+// ProblemStatus returns the status code of the problem.
+// Deprecated: Use StatusCode instead.
+func (p *ProblemDetails) ProblemStatus() int {
 	return p.Status
 }
 
-func (p *DefaultProblem) JSON(ctx context.Context, w http.ResponseWriter) {
-	WriteJson(ctx, w, p.ProblemStatus(), p)
+// StatusCode returns the status code of the problem.
+func (p *ProblemDetails) StatusCode() int {
+	return p.Status
 }
-func (p *DefaultProblem) XML(ctx context.Context, w http.ResponseWriter) {
-	WriteXml(ctx, w, p.ProblemStatus(), p)
+
+// Extended checks if the ProblemDetails struct has any extensions.
+func (p *ProblemDetails) Extended() bool {
+	if p.extensions == nil {
+		return false
+	}
+	return len(p.extensions) > 0
 }
-func (p *DefaultProblem) Wrap() error {
-	return &ProblemError{problem: p, err: p.err}
+
+// Map returns a map representation of the ProblemDetails struct.
+func (p *ProblemDetails) Map() (map[string]interface{}, bool) {
+	m := make(map[string]interface{}, len(p.extensions)+8)
+	m["type"] = p.Type
+	m["title"] = p.Title
+	if p.Detail != "" {
+		m["detail"] = p.Detail
+	}
+	if p.Instance != "" {
+		m["instance"] = p.Instance
+	}
+	if p.Code != "" {
+		m["code"] = p.Code
+	}
+	if len(p.InvalidParams) > 0 {
+		m["invalid-params"] = p.InvalidParams
+	}
+	if len(p.Errors) > 0 {
+		m["errors"] = p.Errors
+	}
+	if p.Status != 0 {
+		m["status"] = p.Status
+	}
+	extended := false
+	if p.extensions != nil {
+		extended = true
+		for k, v := range p.extensions {
+			m[k] = v
+		}
+	}
+	return m, extended
 }
-func (p *DefaultProblem) String() string {
+
+// JSON marshals the ProblemDetails struct into JSON format.
+func (p *ProblemDetails) JSON(ctx context.Context, w http.ResponseWriter) {
+	WriteJson(ctx, w, p.StatusCode(), p)
+}
+
+// MarshalXML marshals the ProblemDetails struct into XML format.
+func (p *ProblemDetails) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	p.Xmlns = Ns9457
+	start.Name.Local = "problem"
+	if err := e.EncodeToken(start); err != nil {
+		return err
+	}
+	elements := []xml.Token{
+		xml.StartElement{Name: xml.Name{Local: "type"}},
+		xml.CharData(p.Type),
+		xml.EndElement{Name: xml.Name{Local: "type"}},
+		xml.StartElement{Name: xml.Name{Local: "title"}},
+		xml.CharData(p.Title),
+		xml.EndElement{Name: xml.Name{Local: "title"}},
+		xml.StartElement{Name: xml.Name{Local: "detail"}},
+		xml.CharData(p.Detail),
+		xml.EndElement{Name: xml.Name{Local: "detail"}},
+		xml.StartElement{Name: xml.Name{Local: "instance"}},
+		xml.CharData(p.Instance),
+		xml.EndElement{Name: xml.Name{Local: "instance"}},
+	}
+	if p.Status != 0 {
+		elements = append(elements,
+			xml.StartElement{Name: xml.Name{Local: "status"}},
+			xml.CharData([]byte(fmt.Sprintf("%d", p.Status))),
+			xml.EndElement{Name: xml.Name{Local: "status"}},
+		)
+	}
+	if p.Code != "" {
+		elements = append(elements,
+			xml.StartElement{Name: xml.Name{Local: "code"}},
+			xml.CharData([]byte(p.Code)),
+			xml.EndElement{Name: xml.Name{Local: "code"}},
+		)
+	}
+	for _, t := range elements {
+		if err := e.EncodeToken(t); err != nil {
+			return err
+		}
+	}
+	if len(p.InvalidParams) > 0 {
+		p.Xmlns = Ns7807
+		se := xml.StartElement{Name: xml.Name{Local: "invalid-params"}}
+		if err := e.EncodeToken(se); err != nil {
+			return err
+		}
+		for _, param := range p.InvalidParams {
+			if err := param.MarshalXML(e, se); err != nil {
+				return err
+			}
+		}
+		if err := e.EncodeToken(se.End()); err != nil {
+			return err
+		}
+	}
+	if len(p.Errors) > 0 {
+		p.Xmlns = Ns9457
+		se := xml.StartElement{Name: xml.Name{Local: "errors"}}
+		if err := e.EncodeToken(se); err != nil {
+			return err
+		}
+		for _, ve := range p.Errors {
+			if err := ve.MarshalXML(e, start); err != nil {
+				return err
+			}
+		}
+		if err := e.EncodeToken(se.End()); err != nil {
+			return err
+		}
+	}
+	if p.extensions != nil {
+		err := EncodeMap(e, p.extensions)
+		if err != nil {
+			return err
+		}
+	}
+	if err := e.EncodeToken(start.End()); err != nil {
+		return err
+	}
+	return e.Flush()
+}
+
+// UnmarshalXML unmarshals the XML data into the ProblemDetails struct.
+func (p *ProblemDetails) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	overlay := xmlProblemDetails{}
+	if err := d.DecodeElement(&overlay, &start); err != nil {
+		return err
+	}
+	p.Type = overlay.Type
+	p.Title = overlay.Title
+	p.Detail = overlay.Detail
+	p.Instance = overlay.Instance
+	p.Status = overlay.Status
+	p.Code = overlay.Code
+	p.InvalidParams = overlay.InvalidParams
+	p.Errors = overlay.Errors
+	if overlay.Extensions != nil {
+		p.extensions = overlay.Extensions
+	}
+	return nil
+}
+
+// XML marshals the ProblemDetails struct into XML format.
+func (p *ProblemDetails) XML(ctx context.Context, w http.ResponseWriter) {
+	WriteXml(ctx, w, p.StatusCode(), p)
+}
+
+// String returns the JSON representation of the ProblemDetails struct.
+func (p *ProblemDetails) String() string {
 	bytes, err := json.Marshal(p)
 	if err != nil {
 		return err.Error()
@@ -134,262 +305,87 @@ func (p *DefaultProblem) String() string {
 	return string(bytes)
 }
 
-func NewProblem(status int) *DefaultProblem {
-	p := &DefaultProblem{Type: DefaultType}
+// Error returns the JSON representation of the ProblemDetails struct.
+func (p *ProblemDetails) Error() string {
+	return p.String()
+}
+
+// Wrap wraps the ProblemDetails struct with an error.
+func (p *ProblemDetails) Wrap() error {
+	return p
+}
+
+// Unwrap returns the underlying error wrapped by the ProblemDetails struct.
+func (p *ProblemDetails) Unwrap() error {
+	return p.err
+}
+
+// NewDetails creates a new ProblemDetails instance with the given status code.
+func NewDetails(status int) *ProblemDetails {
+	p := &ProblemDetails{Type: DefaultType}
 	p.Title = http.StatusText(status)
 	p.Status = status
 	return p
 }
 
-func WrapProblem(p Problem) error {
-	return &ProblemError{problem: p}
-}
-
-func WrapError(err error) error {
-	return &ProblemError{err: err}
-}
-
-type ProblemError struct {
-	Path    string
-	problem Problem
-	err     error
-}
-
-func (err *ProblemError) Problem() Problem {
-	if err.err != nil {
-		return New(Instance(err.Path)).InternalServerError(err.err.Error())
-	}
-	if v, ok := err.problem.(DefaultParams); ok {
-		if err.Path != "" {
-			v.SetInstance(err.Path)
-		}
-	}
-	return err.problem
-}
-func (err *ProblemError) Error() string {
-	if err.err != nil {
-		return err.err.Error()
-	}
-	return err.problem.String()
-}
-func (err *ProblemError) Unwrap() error {
-	if err.err != nil {
-		return err.err
-	}
-	return nil
-}
-
-type BadRequest struct {
-	*DefaultProblem
-	InvalidParams []InvalidParam    `json:"invalid-params,omitempty"`
-	Errors        []ValidationError `json:"errors,omitempty"`
-}
-
-func (p *BadRequest) JSON(ctx context.Context, w http.ResponseWriter) {
-	WriteJson(ctx, w, p.ProblemStatus(), p)
-}
-func (p *BadRequest) XML(ctx context.Context, w http.ResponseWriter) {
-	WriteXml(ctx, w, p.ProblemStatus(), p)
-}
-func (p *BadRequest) Wrap() error {
-	return &ProblemError{problem: p, err: p.err}
-}
-
-// InvalidParams Create RFC7807-style validation error messages
-func InvalidParams(err error, params ...InvalidParam) Option {
-	var fields []InvalidParam
-	var ve validator.ValidationErrors
-	var ne *strconv.NumError
-	var ute *json.UnmarshalTypeError
-	if errors.As(err, &ve) {
-		fields = make([]InvalidParam, 0, len(ve))
-		for _, v := range ve {
-			p := InvalidParam{v.Field(), v.Tag()}
-			fields = append(fields, p)
-		}
-	} else if errors.As(err, &ne) {
-		fields = []InvalidParam{
-			{ne.Func, ne.Num},
-		}
-	} else if errors.As(err, &ute) {
-		fields = []InvalidParam{
-			{ute.Field, "Illegal value type"},
-		}
-	}
-	fields = append(fields, params...)
-	return func(p DefaultParams) Problem {
-		if err != nil {
-			p.SetDetail(err.Error())
-		}
-		switch bp := p.(type) {
-		case *BadRequest:
-			bp.InvalidParams = append(bp.InvalidParams, fields...)
-			return bp
-		case *DefaultProblem:
-			return &BadRequest{
-				DefaultProblem: p.(*DefaultProblem),
-				InvalidParams:  fields,
-			}
-		}
-		return p
-	}
-}
-
-func convertNamespaceToJsonPointer(namespace string) string {
-	names := strings.Split(namespace, ".")
-	buf := strings.Builder{}
-	for i, n := range names {
-		if i == 0 {
-			buf.WriteRune('#')
-		} else if len(n) > 0 && n != "-" {
-			buf.WriteString("/")
-			if strings.HasSuffix(n, "]") {
-				n = strings.ReplaceAll(n, "[", "/")
-				buf.WriteString(strings.ReplaceAll(n, "]", ""))
-			} else {
-				buf.WriteString(n)
-			}
-		}
-	}
-	return buf.String()
-}
-
-// ValidationErrors Create RFC9457-style validation error messages.
-func ValidationErrors(err error, verrs ...ValidationError) Option {
-	var fields []ValidationError
-	var ve validator.ValidationErrors
-	var ne *strconv.NumError
-	var ute *json.UnmarshalTypeError
-	if errors.As(err, &ve) {
-		fields = make([]ValidationError, 0, len(ve))
-		for _, v := range ve {
-			p := ValidationError{v.Tag(), convertNamespaceToJsonPointer(v.Namespace())}
-			fields = append(fields, p)
-		}
-	} else if errors.As(err, &ne) {
-		fields = []ValidationError{
-			{ne.Num, ne.Func},
-		}
-	} else if errors.As(err, &ute) {
-		fields = []ValidationError{
-			{"Illegal value type", convertNamespaceToJsonPointer(ute.Field)},
-		}
-	}
-	fields = append(fields, verrs...)
-	return func(p DefaultParams) Problem {
-		if err != nil {
-			p.SetDetail(err.Error())
-		}
-		switch bp := p.(type) {
-		case *BadRequest:
-			bp.Errors = append(bp.Errors, fields...)
-			return bp
-		case *DefaultProblem:
-			return &BadRequest{
-				DefaultProblem: p.(*DefaultProblem),
-				Errors:         fields,
-			}
-		}
-		return p
-	}
-}
-
-type CodeProblem struct {
-	*DefaultProblem
-}
-
-func (p *CodeProblem) SetCode(code string) {
-	p.Code = code
-}
-func (p *CodeProblem) JSON(ctx context.Context, w http.ResponseWriter) {
-	WriteJson(ctx, w, p.ProblemStatus(), p)
-}
-func (p *CodeProblem) XML(ctx context.Context, w http.ResponseWriter) {
-	WriteXml(ctx, w, p.ProblemStatus(), p)
-}
-func (p *CodeProblem) Wrap() error {
-	return &ProblemError{problem: p, err: p.err}
-}
-
-func Code(code string) Option {
-	return func(p DefaultParams) Problem {
-		if p := p.(CodeParameter); p != nil {
-			p.SetCode(code)
-			return p.(Problem)
-		}
-		switch dp := p.(type) {
-		case *CodeProblem:
-			dp.Code = code
-			return dp
-		case *DefaultProblem:
-			dp.Code = code
-			return &CodeProblem{
-				DefaultProblem: dp,
-			}
-		}
-		return p
-	}
-}
-
-func Wrap(err error) Option {
-	return func(p DefaultParams) Problem {
-		if wrap, ok := p.(Wrapper); ok {
-			wrap.WrapError(err)
-		}
-		return p
-	}
-}
-
-type InvalidParam struct {
-	Name   string `json:"name"`
-	Reason string `json:"reason"`
-}
-
-type ValidationError struct {
-	Detail  string `json:"detail"`
-	Pointer string `json:"pointer"`
-}
-
-func (ve ValidationError) Error() string {
-	return fmt.Sprintf("Property '%s' does not match the schema", ve.Pointer)
-}
-
-type MsgFunc func() string
-
-func selectMsg(err error, f ...MsgFunc) MsgFunc {
-	if len(f) > 0 {
-		return f[0]
-	} else {
-		return func() string {
-			if err != nil {
-				return err.Error()
-			}
-			return ""
-		}
-	}
-}
-
-func Of(ctx context.Context, path string, err error, f ...MsgFunc) Problem {
-	pe := &ProblemError{}
+// As checks if the error is of type Problem and matches the given status codes.
+func As(err error, status ...int) (Problem, bool) {
+	var pe Problem
 	if errors.As(err, &pe) {
-		if pe.Path == "" {
-			pe.Path = path
+		if len(status) > 0 {
+			for _, s := range status {
+				if pe.StatusCode() == s {
+					return pe, true
+				}
+			}
+			return nil, false
 		}
-		return pe.Problem()
+		return pe, true
 	}
-	msg := selectMsg(err, f...)
-	if st, ok := status.FromError(errors.Unwrap(err)); ok {
-		switch st.Code() {
-		case codes.Unavailable:
-			log.EmbedObject(ctx, log.Warn(ctx, 1)).Stack().Msgf("%+v", err)
-			return New(Instance(path)).Unavailable(msg())
+	return nil, false
+}
+
+type FromError func(err error) (Problem, bool)
+
+type option struct {
+	fromError FromError
+}
+
+type Arg func(*option)
+
+func WithFromError(f FromError) Arg {
+	return func(arg *option) {
+		arg.fromError = f
+	}
+}
+
+func Of(ctx context.Context, path string, err error, args ...Arg) Problem {
+	var pe Problem
+	if errors.As(err, &pe) {
+		if pi, ok := pe.(ProblemInstance); ok {
+			pi.SetInstance(path)
+		}
+		return pe
+	}
+	opt := &option{}
+	for _, arg := range args {
+		arg(opt)
+	}
+	if opt.fromError != nil {
+		if p, ok := opt.fromError(err); ok {
+			return p
 		}
 	}
 	log.EmbedObject(ctx, log.Error(ctx, 1)).Stack().Err(err).Msgf("%+v", err)
-	return New(Instance(path), Wrap(err)).InternalServerError(msg())
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	return New(Instance(path), Error(err)).InternalServerError("%s", msg)
 }
 
-func Bind(ctx context.Context, status int, body []byte, f ...func(status int) Problem) (problem Problem, err error) {
+// UnmarshalJson is a convenience function to unmarshal the json body into a Problem instance.
+func UnmarshalJson(ctx context.Context, status int, body []byte, f ...func(status int) Problem) (problem Problem, err error) {
 	problem = newProblem(status, f...)
 	if len(body) <= 0 {
 		return
@@ -398,13 +394,17 @@ func Bind(ctx context.Context, status int, body []byte, f ...func(status int) Pr
 		log.Error(ctx).Msg(string(body))
 		return problem, fmt.Errorf("%w", err)
 	}
-	if decoder, ok := problem.(GraphQLDecoder); ok {
-		switch status {
-		case http.StatusBadRequest:
-			problem = decoder.Decode(&BadRequest{})
-		default:
-			problem = decoder.Decode(&DefaultProblem{})
-		}
+	return
+}
+
+// UnmarshalXml is a convenience function to unmarshal the xml body into a Problem instance.
+func UnmarshalXml(ctx context.Context, status int, body []byte, f ...func(status int) Problem) (problem Problem, err error) {
+	problem = newProblem(status, f...)
+	if len(body) <= 0 {
+		return
+	}
+	if err = xml.Unmarshal(body, problem); err != nil {
+		return nil, err
 	}
 	return
 }
@@ -414,23 +414,34 @@ func newProblem(status int, f ...func(status int) Problem) (problem Problem) {
 		problem = f[0](status)
 	}
 	if problem == nil {
-		switch status {
-		case http.StatusBadRequest:
-			problem = &BadRequest{}
-		default:
-			problem = &DefaultProblem{}
+		problem = &ProblemDetails{
+			extensions: make(map[string]interface{}),
 		}
 	}
 	return
 }
 
-func Decode(ctx context.Context, status int, body io.Reader, f ...func(status int) Problem) (problem Problem, err error) {
+// DecodeJson is a convenience function to decode the io.Reader into a Problem instance.
+func DecodeJson(ctx context.Context, status int, body io.Reader, f ...func(status int) Problem) (problem Problem, err error) {
 	problem = newProblem(status, f...)
 	if body == nil {
 		return
 	}
 	if err = json.NewDecoder(body).Decode(&problem); err != nil {
-		_, _ = io.Copy(io.Discard, body)
+		_, _ = io.Copy(io.Discard, body) // Discard the body
+		return problem, fmt.Errorf("%w", err)
+	}
+	return
+}
+
+// DecodeXml is a convenience function to decode the io.Reader into a Problem instance.
+func DecodeXml(ctx context.Context, status int, body io.Reader, f ...func(status int) Problem) (problem Problem, err error) {
+	problem = newProblem(status, f...)
+	if body == nil {
+		return
+	}
+	if err = xml.NewDecoder(body).Decode(&problem); err != nil {
+		_, _ = io.Copy(io.Discard, body) // Discard the body
 		return problem, fmt.Errorf("%w", err)
 	}
 	return

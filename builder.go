@@ -6,54 +6,17 @@ import (
 )
 
 type Builder struct {
-	url string
-	f   []Option
+	url     string
+	options []Option
 }
 
-type Option func(p DefaultParams) Problem
+type Option func(p Problem) Problem
 
-func Type(format string, args ...interface{}) Option {
-	return func(p DefaultParams) Problem {
-		p.SetType(fmt.Sprintf(format, args...))
-		return p.(Problem)
-	}
-}
-
-func Title(title string) Option {
-	return func(p DefaultParams) Problem {
-		p.SetTitle(title)
-		return p.(Problem)
-	}
-}
-
-func Detail(detail string) Option {
-	return func(p DefaultParams) Problem {
-		p.SetDetail(detail)
-		return p.(Problem)
-	}
-}
-
-func Instance(instance string) Option {
-	return func(p DefaultParams) Problem {
-		p.SetInstance(instance)
-		return p.(Problem)
-	}
-}
-
-func Path(req *http.Request) Option {
-	if req != nil {
-		return Instance(req.URL.Path)
-	}
-	return func(p DefaultParams) Problem {
-		return p.(Problem)
-	}
-}
-
-func New(f ...Option) *Builder {
+func New(opt ...Option) *Builder {
 	b := &Builder{
 		url: DefaultType,
 	}
-	b.f = f
+	b.options = opt
 	return b
 }
 
@@ -62,139 +25,147 @@ func (b *Builder) Type(format string, args ...interface{}) *Builder {
 	b.url = fmt.Sprintf(format, args...)
 	return b
 }
-func (b *Builder) build(status int, detail string, opt ...Option) (sp Problem) {
-	if len(opt) > 0 {
-		var dp DefaultParams
-		dp = NewProblem(status)
-		for _, f := range opt {
-			dp = f(dp).(DefaultParams)
+func (b *Builder) build(status int, detail string) (p Problem) {
+	p = NewDetails(status)
+	if dp, ok := p.(ProblemType); ok {
+		dp.SetType(b.url)
+	}
+	for _, f := range b.options {
+		p = f(p)
+	}
+	if detail != "" {
+		if dp, ok := p.(ProblemDetail); ok {
+			dp.SetDetail(detail)
 		}
-		sp = dp.(Problem)
-	} else {
-		sp = NewProblem(status)
 	}
-	if dp, ok := sp.(DefaultParams); ok {
-		dp.SetParams(b.url, detail)
-	}
-	return sp
+	return p
+}
+func (b *Builder) Build(status int, format string, args ...interface{}) Problem {
+	return b.build(status, fmt.Sprintf(format, args...))
 }
 func (b *Builder) BadRequest(format string, args ...interface{}) Problem {
-	return b.build(http.StatusBadRequest, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusBadRequest, format, args...)
 }
 func (b *Builder) Unauthorized(format string, args ...interface{}) Problem {
-	return b.build(http.StatusUnauthorized, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusUnauthorized, format, args...)
 }
 func (b *Builder) PaymentRequired(format string, args ...interface{}) Problem {
-	return b.build(http.StatusPaymentRequired, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusPaymentRequired, format, args...)
 }
 func (b *Builder) Forbidden(format string, args ...interface{}) Problem {
-	return b.build(http.StatusForbidden, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusForbidden, format, args...)
 }
 func (b *Builder) NotFound(format string, args ...interface{}) Problem {
-	return b.build(http.StatusNotFound, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusNotFound, format, args...)
 }
 func (b *Builder) MethodNotAllowed(format string, args ...interface{}) Problem {
-	return b.build(http.StatusMethodNotAllowed, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusMethodNotAllowed, format, args...)
 }
 func (b *Builder) NotAcceptable(format string, args ...interface{}) Problem {
-	return b.build(http.StatusNotAcceptable, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusNotAcceptable, format, args...)
 }
 func (b *Builder) ProxyAuthRequired(format string, args ...interface{}) Problem {
-	return b.build(http.StatusProxyAuthRequired, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusProxyAuthRequired, format, args...)
 }
 func (b *Builder) RequestTimeout(format string, args ...interface{}) Problem {
-	return b.build(http.StatusRequestTimeout, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusRequestTimeout, format, args...)
 }
 func (b *Builder) Conflict(format string, args ...interface{}) Problem {
-	return b.build(http.StatusConflict, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusConflict, format, args...)
 }
 func (b *Builder) Gone(format string, args ...interface{}) Problem {
-	return b.build(http.StatusGone, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusGone, format, args...)
 }
 func (b *Builder) LengthRequired(format string, args ...interface{}) Problem {
-	return b.build(http.StatusLengthRequired, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusLengthRequired, format, args...)
 }
 func (b *Builder) PreconditionFailed(format string, args ...interface{}) Problem {
-	return b.build(http.StatusPreconditionFailed, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusPreconditionFailed, format, args...)
 }
 func (b *Builder) RequestEntityTooLarge(format string, args ...interface{}) Problem {
-	return b.build(http.StatusRequestEntityTooLarge, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusRequestEntityTooLarge, format, args...)
 }
 func (b *Builder) RequestURITooLong(format string, args ...interface{}) Problem {
-	return b.build(http.StatusRequestURITooLong, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusRequestURITooLong, format, args...)
 }
 func (b *Builder) UnsupportedMediaType(format string, args ...interface{}) Problem {
-	return b.build(http.StatusUnsupportedMediaType, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusUnsupportedMediaType, format, args...)
 }
 func (b *Builder) RequestedRangeNotSatisfiable(format string, args ...interface{}) Problem {
-	return b.build(http.StatusRequestedRangeNotSatisfiable, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusRequestedRangeNotSatisfiable, format, args...)
 }
 func (b *Builder) ExpectationFailed(format string, args ...interface{}) Problem {
-	return b.build(http.StatusExpectationFailed, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusExpectationFailed, format, args...)
 }
 func (b *Builder) Teapot(format string, args ...interface{}) Problem {
-	return b.build(http.StatusTeapot, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusTeapot, format, args...)
 }
 func (b *Builder) MisdirectedRequest(format string, args ...interface{}) Problem {
-	return b.build(http.StatusMisdirectedRequest, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusMisdirectedRequest, format, args...)
 }
 func (b *Builder) UnprocessableEntity(format string, args ...interface{}) Problem {
-	return b.build(http.StatusUnprocessableEntity, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusUnprocessableEntity, format, args...)
 }
 func (b *Builder) Locked(format string, args ...interface{}) Problem {
-	return b.build(http.StatusLocked, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusLocked, format, args...)
 }
 func (b *Builder) FailedDependency(format string, args ...interface{}) Problem {
-	return b.build(http.StatusFailedDependency, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusFailedDependency, format, args...)
 }
 func (b *Builder) TooEarly(format string, args ...interface{}) Problem {
-	return b.build(http.StatusTooEarly, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusTooEarly, format, args...)
 }
 func (b *Builder) UpgradeRequired(format string, args ...interface{}) Problem {
-	return b.build(http.StatusUpgradeRequired, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusUpgradeRequired, format, args...)
 }
 func (b *Builder) PreconditionRequired(format string, args ...interface{}) Problem {
-	return b.build(http.StatusPreconditionRequired, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusPreconditionRequired, format, args...)
 }
 func (b *Builder) TooManyRequests(format string, args ...interface{}) Problem {
-	return b.build(http.StatusTooManyRequests, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusTooManyRequests, format, args...)
 }
 func (b *Builder) RequestHeaderFieldsTooLarge(format string, args ...interface{}) Problem {
-	return b.build(http.StatusRequestHeaderFieldsTooLarge, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusRequestHeaderFieldsTooLarge, format, args...)
 }
 func (b *Builder) UnavailableForLegalReasons(format string, args ...interface{}) Problem {
-	return b.build(http.StatusUnavailableForLegalReasons, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusUnavailableForLegalReasons, format, args...)
 }
 func (b *Builder) InternalServerError(format string, args ...interface{}) Problem {
-	return b.build(http.StatusInternalServerError, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusInternalServerError, format, args...)
 }
 func (b *Builder) NotImplemented(format string, args ...interface{}) Problem {
-	return b.build(http.StatusNotImplemented, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusNotImplemented, format, args...)
 }
 func (b *Builder) BadGateway(format string, args ...interface{}) Problem {
-	return b.build(http.StatusBadGateway, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusBadGateway, format, args...)
 }
+
+// Unavailable is an alias for ServiceUnavailable
+// Deprecated: Use ServiceUnavailable instead
 func (b *Builder) Unavailable(format string, args ...interface{}) Problem {
-	return b.build(http.StatusServiceUnavailable, fmt.Sprintf(format, args...), b.f...)
+	return b.ServiceUnavailable(format, args...)
+}
+func (b *Builder) ServiceUnavailable(format string, args ...interface{}) Problem {
+	return b.Build(http.StatusServiceUnavailable, format, args...)
 }
 func (b *Builder) GatewayTimeout(format string, args ...interface{}) Problem {
-	return b.build(http.StatusGatewayTimeout, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusGatewayTimeout, format, args...)
 }
 func (b *Builder) HTTPVersionNotSupported(format string, args ...interface{}) Problem {
-	return b.build(http.StatusHTTPVersionNotSupported, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusHTTPVersionNotSupported, format, args...)
 }
 func (b *Builder) VariantAlsoNegotiates(format string, args ...interface{}) Problem {
-	return b.build(http.StatusVariantAlsoNegotiates, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusVariantAlsoNegotiates, format, args...)
 }
 func (b *Builder) InsufficientStorage(format string, args ...interface{}) Problem {
-	return b.build(http.StatusInsufficientStorage, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusInsufficientStorage, format, args...)
 }
 func (b *Builder) LoopDetected(format string, args ...interface{}) Problem {
-	return b.build(http.StatusLoopDetected, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusLoopDetected, format, args...)
 }
 func (b *Builder) NotExtended(format string, args ...interface{}) Problem {
-	return b.build(http.StatusNotExtended, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusNotExtended, format, args...)
 }
 func (b *Builder) NetworkAuthenticationRequired(format string, args ...interface{}) Problem {
-	return b.build(http.StatusNetworkAuthenticationRequired, fmt.Sprintf(format, args...), b.f...)
+	return b.Build(http.StatusNetworkAuthenticationRequired, format, args...)
 }
