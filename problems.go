@@ -349,6 +349,7 @@ type FromError func(err error) (Problem, bool)
 
 type option struct {
 	fromError FromError
+	message   string
 }
 
 type Arg func(*option)
@@ -356,6 +357,13 @@ type Arg func(*option)
 func WithFromError(f FromError) Arg {
 	return func(arg *option) {
 		arg.fromError = f
+	}
+}
+
+// WithMessage sets a custom message for the Problem.
+func WithMessage(msg string) Arg {
+	return func(arg *option) {
+		arg.message = msg
 	}
 }
 
@@ -378,7 +386,9 @@ func Of(ctx context.Context, path string, err error, args ...Arg) Problem {
 	}
 	log.EmbedObject(ctx, log.Error(ctx, 1)).Stack().Err(err).Msgf("%+v", err)
 	msg := ""
-	if err != nil {
+	if opt.message != "" {
+		msg = opt.message
+	} else if err != nil {
 		msg = err.Error()
 	}
 	return New(Instance(path), Error(err)).InternalServerError("%s", msg)
