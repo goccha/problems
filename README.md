@@ -1,7 +1,13 @@
-# Problems
+# problems
 ~~Problem Details for HTTP APIs [RFC7807](https://tools.ietf.org/html/rfc7807)~~
 
-RFC9457 [HTTP JSON Problem Details](https://tools.ietf.org/html/rfc9457)
+golang library for handling HTTP API errors defined in RFC9457([HTTP JSON Problem Details](https://tools.ietf.org/html/rfc9457))
+
+RFC9457([HTTP JSON Problem Details](https://tools.ietf.org/html/rfc9457))で定義されたHTTP APIのエラーを扱うためのGO言語のライブラリーです。
+
+Can handle http api error details as golang error
+
+http apiのエラー詳細をgolangのerrorとして処理できます。
 
 ## Simple Usage
 ```go

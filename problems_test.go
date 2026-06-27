@@ -21,7 +21,7 @@ import (
 
 func TestNotFound(t *testing.T) {
 	problem := New(Instance("/test"), Code("NotFound")).NotFound("Not Found")
-	if code, ok := problem.(*DefaultProblem); !ok {
+	if code, ok := problem.(*ProblemDetails); !ok {
 		t.Errorf("invalid struct. %v", problem)
 	} else {
 		if code.Instance != "/test" {
@@ -53,12 +53,12 @@ func TestNewBadRequest(t *testing.T) {
 			Reason: "required",
 		})).BadRequest("")
 
-	bp := p.(*BadRequest)
+	bp := p.(*ProblemDetails)
 	assert.Equal(t, 1, len(bp.InvalidParams))
 }
 
 func TestDefaultProblem_JSON(t *testing.T) {
-	problem := New().Unavailable("unauthorized")
+	problem := New().ServiceUnavailable("unauthorized")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		problem.JSON(context.TODO(), w)
 	}))
@@ -97,7 +97,8 @@ func TestBuilder_BadRequest(t *testing.T) {
 	err := validate.Struct(obj)
 	req, _ := http.NewRequest(http.MethodPost, "http://localhost:8080/validate", nil)
 	p := New(Path(req), ValidationErrors(err), InvalidParams(err)).BadRequest("bad request")
-	if br, ok := p.(*BadRequest); ok {
+	var br *ProblemDetails
+	if errors.As(p, &br) {
 		if br.Instance != "/validate" {
 			t.Errorf("expect = /validate, actual = %s", br.Instance)
 		}
@@ -156,7 +157,8 @@ func TestBuilder_BadRequest(t *testing.T) {
 func TestOf(t *testing.T) {
 	err := errors.New("test error")
 	p := Of(context.TODO(), "/problems", err)
-	if dp, ok := p.(*DefaultProblem); ok {
+	var dp *ProblemDetails
+	if errors.As(p, &dp) {
 		if dp.Instance != "/problems" {
 			t.Errorf("expect = /problems, actual = %s", dp.Instance)
 		}
@@ -178,7 +180,8 @@ func TestOf(t *testing.T) {
 
 func TestOfNil(t *testing.T) {
 	p := Of(context.TODO(), "/problems", nil)
-	if dp, ok := p.(*DefaultProblem); ok {
+	var dp *ProblemDetails
+	if errors.As(p, &dp) {
 		if dp.Instance != "/problems" {
 			t.Errorf("expect = /problems, actual = %s", dp.Instance)
 		}
@@ -199,32 +202,32 @@ func TestOfNil(t *testing.T) {
 }
 
 func TestCodeProblem(t *testing.T) {
-	p := New(Instance("/problems"), Code("E001"), Type("http://localhost:8080/test?code=E001")).Unavailable("")
-	if dp, ok := p.(*DefaultProblem); ok {
+	p := New(Instance("/problems"), Code("E001"), Type("http://localhost:8080/test?code=E001")).ServiceUnavailable("")
+	var dp *ProblemDetails
+	if errors.As(p, &dp) {
 		if dp.Type != "http://localhost:8080/test?code=E001" {
 			t.Errorf("expect = http://localhost:8080/test?code=E001, actual = %s", dp.Type)
 		}
 		if dp.Code != "E001" {
 			t.Errorf("expect = E001, actual = %s", dp.Code)
 		}
-	} else {
-		t.Errorf("expect = DefaultProblem, actual=%v", p)
 	}
 }
 
-func TestBind(t *testing.T) {
+func TestUnmarshalJson(t *testing.T) {
 	p := New(Instance("/problems")).BadRequest("bad request")
 	bin, err := json.Marshal(p)
 	if err != nil {
 		t.Errorf("%v", err)
 	}
-	if bp, err := Bind(context.TODO(), http.StatusBadRequest, bin); err != nil {
+	if bp, err := UnmarshalJson(context.TODO(), http.StatusBadRequest, bin); err != nil {
 		t.Errorf("%v", err)
 	} else {
 		if bp.ProblemStatus() != http.StatusBadRequest {
 			t.Errorf("expect = %d, actual = %d", http.StatusBadRequest, bp.ProblemStatus())
 		}
-		req, ok := bp.(*BadRequest)
+		var req *ProblemDetails
+		ok := errors.As(bp, &req)
 		if !ok {
 			t.Errorf("invalid struct. %v", bp)
 		}
@@ -237,19 +240,20 @@ func TestBind(t *testing.T) {
 	}
 }
 
-func TestDecode(t *testing.T) {
+func TestDecodeJson(t *testing.T) {
 	p := New(Instance("/problems")).BadRequest("bad request")
 	bin, err := json.Marshal(p)
 	if err != nil {
 		t.Errorf("%v", err)
 	}
-	if bp, err := Decode(context.TODO(), http.StatusBadRequest, bytes.NewBuffer(bin)); err != nil {
+	if bp, err := DecodeJson(context.TODO(), http.StatusBadRequest, bytes.NewBuffer(bin)); err != nil {
 		t.Errorf("%v", err)
 	} else {
-		if bp.ProblemStatus() != http.StatusBadRequest {
+		if bp.StatusCode() != http.StatusBadRequest {
 			t.Errorf("expect = %d, actual = %d", http.StatusBadRequest, bp.ProblemStatus())
 		}
-		req, ok := bp.(*BadRequest)
+		var req *ProblemDetails
+		ok := errors.As(bp, &req)
 		if !ok {
 			t.Errorf("invalid struct. %v", bp)
 		}
@@ -290,27 +294,19 @@ func TestNamespace(t *testing.T) {
 }
 
 func TestValidationErrors(t *testing.T) {
-	verr := validator.ValidationErrors{}
-	verr = append(verr, &fieldError{tag: "a", ns: "a"})
-	problem := &DefaultProblem{}
-	p := ValidationErrors(verr)(problem)
-	if v, ok := p.(*BadRequest); !ok {
+	ve := validator.ValidationErrors{}
+	ve = append(ve, &fieldError{tag: "a", ns: "a"})
+	problem := &ProblemDetails{}
+	p := ValidationErrors(ve)(problem)
+	if len(problem.Errors) != 1 {
 		t.Errorf("expect = BadRequest, actual = %v", p)
-	} else {
-		if len(v.Errors) != 1 {
-			t.Errorf("expect = error, actual = %v", v)
-		}
 	}
 	var err error
 	_, err = strconv.ParseInt("a", 10, 32)
-	problem = &DefaultProblem{}
+	problem = &ProblemDetails{}
 	p = ValidationErrors(err)(problem)
-	if v, ok := p.(*BadRequest); !ok {
+	if len(problem.Errors) != 1 {
 		t.Errorf("expect = BadRequest, actual = %v", p)
-	} else {
-		if len(v.Errors) != 1 {
-			t.Errorf("expect = error, actual = %v", v)
-		}
 	}
 	err = &json.UnmarshalTypeError{
 		Value:  "",
@@ -319,40 +315,28 @@ func TestValidationErrors(t *testing.T) {
 		Struct: "",
 		Field:  "test",
 	}
-	problem = &DefaultProblem{}
+	problem = &ProblemDetails{}
 	p = ValidationErrors(err)(problem)
-	if v, ok := p.(*BadRequest); !ok {
+	if len(problem.Errors) != 1 {
 		t.Errorf("expect = BadRequest, actual = %v", p)
-	} else {
-		if len(v.Errors) != 1 {
-			t.Errorf("expect = error, actual = %v", v)
-		}
 	}
 
 }
 
 func TestInvalidParams(t *testing.T) {
-	verr := validator.ValidationErrors{}
-	verr = append(verr, &fieldError{tag: "a", ns: "a"})
-	problem := &DefaultProblem{}
-	p := InvalidParams(verr)(problem)
-	if v, ok := p.(*BadRequest); !ok {
+	ve := validator.ValidationErrors{}
+	ve = append(ve, &fieldError{tag: "a", ns: "a"})
+	problem := &ProblemDetails{}
+	p := InvalidParams(ve)(problem)
+	if len(problem.InvalidParams) != 1 {
 		t.Errorf("expect = BadRequest, actual = %v", p)
-	} else {
-		if len(v.InvalidParams) != 1 {
-			t.Errorf("expect = error, actual = %v", v)
-		}
 	}
 	var err error
 	_, err = strconv.ParseInt("a", 10, 32)
-	problem = &DefaultProblem{}
+	problem = &ProblemDetails{}
 	p = InvalidParams(err)(problem)
-	if v, ok := p.(*BadRequest); !ok {
+	if len(problem.InvalidParams) != 1 {
 		t.Errorf("expect = BadRequest, actual = %v", p)
-	} else {
-		if len(v.InvalidParams) != 1 {
-			t.Errorf("expect = error, actual = %v", v)
-		}
 	}
 	err = &json.UnmarshalTypeError{
 		Value:  "",
@@ -361,14 +345,10 @@ func TestInvalidParams(t *testing.T) {
 		Struct: "",
 		Field:  "test",
 	}
-	problem = &DefaultProblem{}
+	problem = &ProblemDetails{}
 	p = InvalidParams(err)(problem)
-	if v, ok := p.(*BadRequest); !ok {
+	if len(problem.InvalidParams) != 1 {
 		t.Errorf("expect = BadRequest, actual = %v", p)
-	} else {
-		if len(v.InvalidParams) != 1 {
-			t.Errorf("expect = error, actual = %v", v)
-		}
 	}
 
 }
