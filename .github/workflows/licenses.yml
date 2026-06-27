@@ -16,9 +16,9 @@ jobs:
     timeout-minutes: 300
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check OSS Licenses
-        uses: goccha/go-licenses-action@v0.0.1
+        uses: goccha/go-licenses-action@v0.0.2
         with:
           ignore: golang.org/x
